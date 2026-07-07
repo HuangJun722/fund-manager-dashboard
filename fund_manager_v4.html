@@ -102,6 +102,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .advanced-config .advanced-body{padding:0 16px 16px;border-top:1px solid #f1f5f9}
 .owner-target-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
 .settings-card-actions{display:flex;gap:8px;flex-wrap:wrap}
+.crypto-sync-status{font-size:12px;color:#64748b;margin-top:10px;line-height:1.45}
+.crypto-sync-status.ok{color:#047857}.crypto-sync-status.warn{color:#b45309}.crypto-sync-status.err{color:#be123c}
 .preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px}
 .preset-btn{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:9px 10px;text-align:left;cursor:pointer;font-family:inherit;transition:all .15s}
 .preset-btn:hover{border-color:#2563eb;background:#f8fbff}
@@ -158,6 +160,10 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .modal.open{display:flex}
 .modal-box{background:#fff;border-radius:14px;padding:24px;width:90%;max-width:560px;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
 .modal-box h3{font-size:16px;font-weight:700;margin-bottom:16px}
+.modal-box input[type=password]{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;font-size:14px;font-family:inherit}
+.modal-msg{font-size:13px;color:#64748b;line-height:1.55;margin-bottom:12px}
+.modal-status{font-size:12px;color:#64748b;white-space:pre-wrap;line-height:1.45;margin-top:10px}
+.modal-status.err{color:#be123c}.modal-status.ok{color:#047857}
 .field-map-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0f0f0}
 .field-map-row:last-child{border-bottom:none}
 .fmr-excel{font-size:13px;color:#555;flex:1;font-family:monospace}
@@ -361,8 +367,11 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
       <div class="settings-card-actions">
         <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">导入文件</button>
         <button class="btn btn-ghost" onclick="exportJSON()">导出备份</button>
+        <button class="btn btn-primary" onclick="startEncryptedExport()">导出加密资产</button>
+        <button class="btn btn-ghost" onclick="loadRemoteEncryptedPortfolio(true)">加载云端加密资产</button>
         <button class="btn btn-danger" onclick="clearAll()">清空数据</button>
       </div>
+      <div id="cryptoSyncStatus" class="crypto-sync-status">云端加密资产：检测中</div>
       <div style="font-size:12px;color:#888;margin-top:10px">这些操作属于偶尔维护，已从首页顶部下沉到设置页。</div>
     </div>
   </div>
@@ -385,6 +394,20 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
 </div>
 
+<!-- Crypto Modal -->
+<div class="modal" id="cryptoModal">
+  <div class="modal-box">
+    <h3 id="cryptoModalTitle">解锁云端加密资产</h3>
+    <p id="cryptoModalMsg" class="modal-msg">输入主密码后，资产数据只会在本浏览器内解密。</p>
+    <input id="cryptoPassword" type="password" autocomplete="current-password" placeholder="输入主密码">
+    <div id="cryptoModalStatus" class="modal-status"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeCryptoModal()">取消</button>
+      <button id="cryptoConfirmBtn" class="btn btn-primary" onclick="confirmCryptoModal()">解密加载</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -395,6 +418,8 @@ const CATS = ['现金/存款','固收/理财','基金/ETF','股票','加密/另�
 const CAT_COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#64748b'];
 const LS_KEY = 'fgov_v4';
 const REMOTE_QUOTE_CACHE_URL = 'data/quotes_cache_latest.json';
+const REMOTE_PORTFOLIO_URL = 'data/portfolio.encrypted.json';
+const CRYPTO_ITERATIONS = 600000;
 
 // ── Field alias maps for fuzzy matching ──
 // CORE: MUST resolve to these 4 keys
@@ -591,6 +616,7 @@ const DEF_STATE = () => ({
   watchlist: [],
   quoteCache: {asOf:'', funds:{}, benchmarks:{}, securities:{}},
   snapshot: null,
+  cryptoSync: null,
   notesA: '', notesB: '',
   alertDown: 5, alertUp: 10
 });
@@ -600,25 +626,251 @@ let mktData = {};
 let mktTimer = null;
 let charts = {};
 let pendingRows = [], pendingExtra = [], pendingMap = [];
+let pendingCryptoEnvelope = null;
+let cryptoModalMode = '';
+
+function normalizeState(data){
+  const defaults = DEF_STATE();
+  const input = data || {};
+  const next = Object.assign({}, defaults, input);
+  next.rows = Array.isArray(next.rows) ? next.rows : [];
+  next.extraFields = Array.isArray(next.extraFields) ? next.extraFields : [];
+  next.watchlist = Array.isArray(next.watchlist) ? next.watchlist : [];
+  const inputTargets = input.targets || {};
+  next.targets = {};
+  ['all','A','B'].forEach(scope=>{
+    next.targets[scope] = Object.assign({}, defaults.targets[scope], inputTargets[scope] || {});
+  });
+  next.quoteCache = next.quoteCache || defaults.quoteCache;
+  next.quoteCache.funds = next.quoteCache.funds || {};
+  next.quoteCache.benchmarks = next.quoteCache.benchmarks || {};
+  next.quoteCache.securities = next.quoteCache.securities || {};
+  next.nextId = Math.max(Number(next.nextId)||1, next.rows.reduce((m,r)=>Math.max(m, Number(r.id)||0),0)+1);
+  return next;
+}
+
+function applyState(data, opts={}){
+  const previousQuoteCache = S.quoteCache;
+  S = normalizeState(data);
+  if(opts.preserveQuoteCache && previousQuoteCache) S.quoteCache = previousQuoteCache;
+  if(opts.cryptoFingerprint){
+    S.cryptoSync = {source:'github-pages', loadedAt:new Date().toISOString(), fingerprint:opts.cryptoFingerprint};
+  }
+  persistState();
+  renderAll();
+}
 
 // ══════════════════════════════════════════════════════════════
 //  PERSIST
 // ══════════════════════════════════════════════════════════════
+function persistState(){
+  localStorage.setItem(LS_KEY, JSON.stringify(S));
+}
 function save(){
   S.notesA = document.getElementById('notesA').value;
   S.notesB = document.getElementById('notesB').value;
   S.alertDown = parseFloat(document.getElementById('alertDown').value)||5;
   S.alertUp   = parseFloat(document.getElementById('alertUp').value)||10;
-  localStorage.setItem(LS_KEY, JSON.stringify(S));
+  persistState();
 }
 function load(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(raw) S = Object.assign(DEF_STATE(), JSON.parse(raw));
+    if(raw) S = normalizeState(JSON.parse(raw));
     // back-compat: ensure extraFields
     if(!S.extraFields) S.extraFields=[];
     if(!S.quoteCache) S.quoteCache={asOf:'', funds:{}, benchmarks:{}, securities:{}};
   }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ENCRYPTED PORTFOLIO SYNC
+// ══════════════════════════════════════════════════════════════
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+function bytesToBase64(bytes){
+  let bin = '';
+  new Uint8Array(bytes).forEach(b=>bin += String.fromCharCode(b));
+  return btoa(bin);
+}
+function base64ToBytes(base64){
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function envelopeFingerprint(envelope){
+  return [
+    envelope && envelope.version,
+    envelope && envelope.createdAt,
+    envelope && envelope.kdf && envelope.kdf.salt,
+    envelope && envelope.cipher && envelope.cipher.iv,
+    String(envelope && envelope.ciphertext || '').length,
+    String(envelope && envelope.ciphertext || '').slice(0,24)
+  ].join('|');
+}
+function assertWebCrypto(){
+  if(!window.crypto || !crypto.subtle) throw new Error('当前环境不支持 Web Crypto。请使用 HTTPS 页面或 localhost。');
+}
+function assertStrongPassword(password){
+  if(String(password||'').length < 14) throw new Error('主密码至少 14 个字符；建议使用更长的密码短语。');
+}
+function validateEnvelope(envelope){
+  if(!envelope || envelope.version !== 1) throw new Error('不支持的密文版本');
+  if(!envelope.kdf || envelope.kdf.name !== 'PBKDF2' || envelope.kdf.hash !== 'SHA-256') throw new Error('不支持的 KDF 参数');
+  if(!envelope.cipher || envelope.cipher.name !== 'AES-GCM' || Number(envelope.cipher.length) !== 256) throw new Error('不支持的加密算法');
+  if(!envelope.kdf.salt || !envelope.cipher.iv || !envelope.ciphertext) throw new Error('密文文件不完整');
+}
+async function derivePortfolioKey(password, salt, usages, iterations=CRYPTO_ITERATIONS){
+  const baseKey = await crypto.subtle.importKey('raw', textEncoder.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt, iterations:Number(iterations), hash:'SHA-256'},
+    baseKey,
+    {name:'AES-GCM', length:256},
+    false,
+    usages
+  );
+}
+async function encryptStateEnvelope(password){
+  assertWebCrypto();
+  assertStrongPassword(password);
+  const plain = JSON.stringify(S);
+  JSON.parse(plain);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await derivePortfolioKey(password, salt, ['encrypt']);
+  const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM', iv, tagLength:128}, key, textEncoder.encode(plain));
+  return {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    payload: {type:'fund-manager-state', encoding:'utf-8+json'},
+    kdf: {name:'PBKDF2', hash:'SHA-256', iterations:CRYPTO_ITERATIONS, salt:bytesToBase64(salt)},
+    cipher: {name:'AES-GCM', length:256, iv:bytesToBase64(iv), tagLength:128},
+    ciphertext: bytesToBase64(ciphertext)
+  };
+}
+async function decryptStateEnvelope(envelope, password){
+  assertWebCrypto();
+  validateEnvelope(envelope);
+  const salt = base64ToBytes(envelope.kdf.salt);
+  const iv = base64ToBytes(envelope.cipher.iv);
+  const ciphertext = base64ToBytes(envelope.ciphertext);
+  const key = await derivePortfolioKey(password, salt, ['decrypt'], envelope.kdf.iterations);
+  const plaintext = await crypto.subtle.decrypt({name:'AES-GCM', iv, tagLength:128}, key, ciphertext);
+  return JSON.parse(textDecoder.decode(plaintext));
+}
+function downloadText(filename, text){
+  const blob = new Blob([text], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+function setCryptoSyncStatus(msg, cls=''){
+  const el = document.getElementById('cryptoSyncStatus');
+  if(!el) return;
+  el.className = 'crypto-sync-status'+(cls?' '+cls:'');
+  el.textContent = msg;
+}
+function setCryptoModalStatus(msg, cls=''){
+  const el = document.getElementById('cryptoModalStatus');
+  if(!el) return;
+  el.className = 'modal-status'+(cls?' '+cls:'');
+  el.textContent = msg || '';
+}
+function openCryptoModal(mode, envelope=null){
+  cryptoModalMode = mode;
+  pendingCryptoEnvelope = envelope;
+  const title = document.getElementById('cryptoModalTitle');
+  const msg = document.getElementById('cryptoModalMsg');
+  const password = document.getElementById('cryptoPassword');
+  const confirmBtn = document.getElementById('cryptoConfirmBtn');
+  password.value = '';
+  password.autocomplete = mode==='export' ? 'new-password' : 'current-password';
+  setCryptoModalStatus('');
+  if(mode==='export'){
+    title.textContent = '导出加密资产';
+    msg.textContent = '用主密码加密当前资产数据，并下载 portfolio.encrypted.json。';
+    confirmBtn.textContent = '加密下载';
+  }else{
+    title.textContent = '解锁云端加密资产';
+    msg.textContent = '输入主密码后，资产数据只会在本浏览器内解密并保存到本机缓存。';
+    confirmBtn.textContent = '解密加载';
+  }
+  document.getElementById('cryptoModal').classList.add('open');
+  setTimeout(()=>password.focus(), 50);
+}
+function closeCryptoModal(){
+  document.getElementById('cryptoModal').classList.remove('open');
+  document.getElementById('cryptoPassword').value = '';
+  setCryptoModalStatus('');
+  pendingCryptoEnvelope = null;
+  cryptoModalMode = '';
+}
+async function confirmCryptoModal(){
+  const btn = document.getElementById('cryptoConfirmBtn');
+  const password = document.getElementById('cryptoPassword').value;
+  btn.disabled = true;
+  try{
+    if(cryptoModalMode==='export'){
+      save();
+      setCryptoModalStatus('正在派生密钥并加密，可能需要几秒钟...');
+      const envelope = await encryptStateEnvelope(password);
+      downloadText('portfolio.encrypted.json', JSON.stringify(envelope, null, 2));
+      setCryptoSyncStatus('云端加密资产：已生成本地加密文件，提交到仓库后可跨设备加载', 'ok');
+      closeCryptoModal();
+      toast('加密资产文件已下载');
+    }else{
+      if(!pendingCryptoEnvelope) throw new Error('没有待解锁的云端加密资产');
+      setCryptoModalStatus('正在解密...');
+      const fingerprint = envelopeFingerprint(pendingCryptoEnvelope);
+      const data = await decryptStateEnvelope(pendingCryptoEnvelope, password);
+      applyState(data, {preserveQuoteCache:true, cryptoFingerprint:fingerprint});
+      setCryptoSyncStatus('云端加密资产：已解锁并加载', 'ok');
+      closeCryptoModal();
+      loadRemoteQuoteCache();
+      fetchMarket();
+      toast('云端加密资产已加载');
+    }
+  }catch(err){
+    setCryptoModalStatus(err.message || '解密失败：密码错误、文件损坏或参数不兼容。', 'err');
+  }finally{
+    btn.disabled = false;
+  }
+}
+function startEncryptedExport(){
+  openCryptoModal('export');
+}
+async function loadRemoteEncryptedPortfolio(manual=false){
+  if(location.protocol==='file:'){
+    setCryptoSyncStatus('云端加密资产：本地 file 模式不可自动加载，请使用 GitHub Pages 地址', 'warn');
+    if(manual) toast('请在 GitHub Pages 页面加载云端加密资产');
+    return;
+  }
+  try{
+    const res = await fetch(REMOTE_PORTFOLIO_URL+'?t='+Date.now(), {cache:'no-store'});
+    if(res.status===404){
+      setCryptoSyncStatus('云端加密资产：未配置，先导出 portfolio.encrypted.json 并提交到 data/ 目录', 'warn');
+      if(manual) toast('仓库里还没有 portfolio.encrypted.json');
+      return;
+    }
+    if(!res.ok) throw new Error('云端加密资产请求失败：HTTP '+res.status);
+    const envelope = await res.json();
+    validateEnvelope(envelope);
+    const fingerprint = envelopeFingerprint(envelope);
+    if(S.cryptoSync && S.cryptoSync.fingerprint===fingerprint && S.rows.length){
+      setCryptoSyncStatus('云端加密资产：当前浏览器已加载最新版', 'ok');
+      if(manual) toast('当前浏览器已是最新版');
+      return;
+    }
+    setCryptoSyncStatus('云端加密资产：已发现，等待解锁', 'warn');
+    openCryptoModal('load', envelope);
+  }catch(err){
+    setCryptoSyncStatus('云端加密资产：加载失败，'+(err.message || String(err)), 'err');
+    if(manual) toast('云端加密资产加载失败');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1316,8 +1568,8 @@ document.getElementById('fileInput').addEventListener('change', e=>{
     const reader = new FileReader();
     reader.onload = ev=>{
       try{
-        S=Object.assign(DEF_STATE(),JSON.parse(ev.target.result));
-        save(); renderAll(); toast('JSON 导入成功');
+        applyState(JSON.parse(ev.target.result));
+        toast('JSON 导入成功');
       }catch(err){ alert('JSON 解析失败：'+err); }
     };
     reader.readAsText(file);
@@ -1682,7 +1934,7 @@ function toast(msg,dur=2500){
 // ══════════════════════════════════════════════════════════════
 load();
 renderAll();
-loadRemoteQuoteCache();
+loadRemoteQuoteCache().then(()=>loadRemoteEncryptedPortfolio(false));
 // Auto-fetch market on load
 setTimeout(fetchMarket, 400);
 // Refresh every 5 min

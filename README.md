@@ -12,7 +12,7 @@
 
 不要提交真实持仓、责任人资产明细、导出的备份 JSON、Excel 原始数据或任何个人隐私数据。
 
-真实资产数据只保存在浏览器 `localStorage` 中。也就是说，同一设备同一浏览器再次打开页面会保留数据；换设备需要重新导入。
+真实资产数据可以保存在浏览器 `localStorage`，也可以加密为 `data/portfolio.encrypted.json` 后发布。加密文件只允许是 AES-GCM 密文，不要提交明文备份或 Excel 原始数据。
 
 ## 访问地址
 
@@ -48,3 +48,14 @@ npm run build
 - 明文和主密码只在浏览器本地处理
 
 加密文件可以命名为 `portfolio.encrypted.json`。不要提交明文资产数据。
+
+## 加密资产同步
+
+主面板已支持自动检测 `data/portfolio.encrypted.json`：
+
+- 打开 GitHub Pages 后，页面会先加载每日行情缓存。
+- 如果发现 `portfolio.encrypted.json`，会要求输入主密码并在浏览器本地解密。
+- 解密后的资产数据和行情缓存会在本地合并计算市值。
+- 设置页可以导出新的 `portfolio.encrypted.json`，用于手动提交到仓库。
+
+主密码不会写入代码、仓库或行情缓存。
