@@ -1,0 +1,17 @@
+node_modules/
+dist/
+_ux_audit/
+.wrangler/
+*.log
+*.tmp
+
+# Never commit private holdings or backups.
+fund_backup_*.json
+*.local.json
+data/private*.json
+data/holdings*.json
+data/assets*.json
+*.xlsx
+*.xls
+*.csv
+

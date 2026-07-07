@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>家庭资金治理台 v4</title>
+<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f4f6f8;color:#1f2933;font-size:14px}
+/* ── Top bar ── */
+#topbar{background:#172033;color:#f8fafc;padding:0 20px;height:54px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(15,23,42,.24)}
+#topbar h1{font-size:17px;font-weight:700;letter-spacing:.5px}
+#topbar .actions{display:flex;gap:8px;align-items:center}
+.snapshot-info{font-size:12px;color:#cbd5e1;white-space:nowrap}
+/* ── Alert banner ── */
+#alertBanner{display:none;background:#ff4d4f;color:#fff;padding:8px 20px;font-size:13px;text-align:center;position:relative}
+#alertTxt{display:block;padding:0 28px;line-height:1.35}
+#alertBanner .alert-close{cursor:pointer;position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:18px;line-height:1}
+/* ── Tabs ── */
+#tabBar{background:#fff;border-bottom:2px solid #e8e8e8;display:flex;padding:0 20px;gap:4px;overflow-x:auto}
+.tab-btn{padding:12px 22px;border:none;background:none;cursor:pointer;font-size:14px;color:#666;border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:all .2s}
+.tab-btn.active{color:#2563eb;border-bottom-color:#2563eb;font-weight:700}
+.tab-pane{display:none;padding:18px 20px}
+.tab-pane.active{display:block}
+/* ── KPI Cards ── */
+.kpi-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.kpi-card{background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:150px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.kpi-card .label{font-size:12px;color:#888;margin-bottom:4px}
+.kpi-card .val{font-size:22px;font-weight:700;color:#1a1a1a}
+.kpi-card .sub{font-size:11px;color:#aaa;margin-top:2px}
+/* ── Owner summary ── */
+.owner-row{display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.owner-card{background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:200px;box-shadow:0 1px 4px rgba(0,0,0,.08);border:1px solid #e5e7eb}
+.owner-card .name{font-size:13px;color:#888;margin-bottom:4px}
+.owner-card .amount{font-size:20px;font-weight:700}
+.owner-card .pct{font-size:12px;color:#aaa;margin-top:2px}
+/* ── Section headers ── */
+.sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sec-hdr h3{font-size:14px;font-weight:700;color:#333;display:flex;align-items:center;gap:6px}
+/* ── Charts ── */
+.chart-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.chart-box{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);flex:1;min-width:280px}
+.chart-box h4{font-size:13px;color:#666;margin-bottom:10px;text-align:center}
+.chart-box canvas{max-height:220px}
+.focus-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:18px}
+.focus-card{background:#fff;border-radius:10px;padding:13px 15px;box-shadow:0 1px 4px rgba(0,0,0,.08);border:1px solid #e5e7eb}
+.focus-card.warn{background:#fffbeb;border-color:#f59e0b}.focus-card.good{background:#f0fdf4;border-color:#86efac}.focus-card.bad{background:#fff1f2;border-color:#fb7185}
+.focus-card .label{font-size:12px;color:#888;margin-bottom:5px}.focus-card .value{font-size:19px;font-weight:700}.focus-card .sub{font-size:11px;color:#999;margin-top:3px}
+.alloc-list{display:flex;flex-direction:column;gap:9px;margin-top:8px}
+.alloc-row{display:grid;grid-template-columns:82px 1fr 92px;gap:8px;align-items:center;font-size:12px}
+.alloc-name{color:#555;white-space:nowrap}.alloc-bar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden}.alloc-fill{height:100%;border-radius:999px}
+.alloc-num{text-align:right;color:#555;font-variant-numeric:tabular-nums}
+.alloc-empty{font-size:13px;color:#aaa;text-align:center;padding:18px 0}
+.owner-share-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.owner-share-row{display:grid;grid-template-columns:92px 1fr 110px;gap:10px;align-items:center;font-size:12px}
+.owner-share-name{color:#555}.owner-share-bar{height:10px;background:#eef2f7;border-radius:999px;overflow:hidden}.owner-share-fill{height:100%;border-radius:999px;background:#2563eb}
+.owner-share-num{text-align:right;color:#555;font-variant-numeric:tabular-nums}
+.detail-disclosure{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px;overflow:hidden}
+.detail-disclosure summary{list-style:none;cursor:pointer;padding:13px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.detail-disclosure summary::-webkit-details-marker{display:none}
+.detail-disclosure summary span{font-size:12px;color:#64748b;font-weight:500}
+.detail-disclosure .tbl-wrap{box-shadow:none;border-radius:0;margin-bottom:0}
+/* ── Table ── */
+.tbl-wrap{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:auto;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;min-width:600px}
+thead th{background:#fafafa;font-size:12px;font-weight:600;color:#555;padding:9px 10px;text-align:left;border-bottom:2px solid #e8e8e8;white-space:nowrap;position:sticky;top:0;z-index:1}
+thead th.col-core{background:#fff4e6;color:#b45309;border-bottom-color:#f59e0b}
+thead th.col-opt{background:#eff6ff;color:#1d4ed8;border-bottom-color:#93c5fd}
+thead th.col-extra{background:#f4f4f5;color:#52525b;border-bottom-color:#d4d4d8}
+tbody tr:nth-child(even){background:#fafafa}
+tbody tr:hover{background:#f0f7ff}
+td{padding:6px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+td input,td select{border:1px solid #e2e8f0;border-radius:5px;padding:4px 6px;font-size:13px;width:100%;background:#fff;font-family:inherit;transition:border-color .2s}
+td input:focus,td select:focus{outline:none;border-color:#2563eb}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.del-btn{background:none;border:none;color:#ff4d4f;cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px;transition:background .15s}
+.del-btn:hover{background:#fff1f0}
+.price-cell,.mv-cell,.pnl-cell{font-size:13px}
+.rise{color:#f5222d}.fall{color:#52c41a}.flat{color:#888}
+/* ── Rebalance ── */
+.reb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:18px}
+.reb-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.reb-card .cat-name{font-size:13px;font-weight:600;margin-bottom:8px}
+.reb-card .prog-wrap{background:#f0f0f0;border-radius:4px;height:8px;margin-bottom:6px;overflow:hidden}
+.reb-card .prog-bar{height:8px;border-radius:4px;transition:width .4s}
+.reb-card .numbers{display:flex;justify-content:space-between;font-size:12px;color:#888}
+.reb-card .suggest{font-size:12px;margin-top:6px;padding:4px 8px;border-radius:4px;font-weight:600}
+.suggest.ok{background:#f6ffed;color:#389e0d}
+.suggest.over{background:#fff7e6;color:#d46b08}
+.suggest.under{background:#e6f7ff;color:#0958d9}
+.target-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12px}
+.target-row label{width:90px;color:#666;white-space:nowrap}
+.target-row input[type=number]{width:76px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;font-size:13px;text-align:right}
+.target-row .unit{font-size:12px;color:#888}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.advanced-config{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden}
+.advanced-config summary{list-style:none;cursor:pointer;padding:14px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.advanced-config summary::-webkit-details-marker{display:none}
+.advanced-config summary span{font-size:12px;color:#64748b;font-weight:500}
+.advanced-config .advanced-body{padding:0 16px 16px;border-top:1px solid #f1f5f9}
+.owner-target-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.settings-card-actions{display:flex;gap:8px;flex-wrap:wrap}
+.preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px}
+.preset-btn{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:9px 10px;text-align:left;cursor:pointer;font-family:inherit;transition:all .15s}
+.preset-btn:hover{border-color:#2563eb;background:#f8fbff}
+.preset-btn b{display:block;font-size:13px;color:#1f2937;margin-bottom:2px}
+.preset-btn span{display:block;font-size:11px;color:#64748b}
+.preset-btn .ratios{margin-top:4px;color:#334155;line-height:1.45}
+#targetSum{font-size:12px;margin-top:6px;padding:4px 8px;border-radius:4px;font-weight:600}
+.sum-ok{background:#f6ffed;color:#389e0d}
+.sum-err{background:#fff7e6;color:#b45309}
+/* ── Market grid ── */
+.market-tools{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.market-tools input{border:1px solid #e2e8f0;border-radius:7px;padding:8px 12px;font-size:13px;width:200px}
+.quality-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:18px}
+.quality-card{background:#fff;border-radius:10px;padding:13px 15px;border:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.quality-card.good{background:#f0fdf4;border-color:#86efac}.quality-card.warn{background:#fffbeb;border-color:#f59e0b}.quality-card.bad{background:#fff1f2;border-color:#fb7185}
+.quality-card .label{font-size:12px;color:#888;margin-bottom:5px}.quality-card .value{font-size:19px;font-weight:700}.quality-card .sub{font-size:11px;color:#999;margin-top:3px}
+.issue-list{display:flex;flex-direction:column;gap:10px}
+.issue-row{display:grid;grid-template-columns:128px 1fr 84px;gap:10px;align-items:center;font-size:12px}
+.issue-title{font-weight:700;color:#334155}.issue-detail{color:#64748b;line-height:1.45}
+.secondary-details{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden;margin-bottom:18px}
+.secondary-details summary{list-style:none;cursor:pointer;padding:13px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.secondary-details summary::-webkit-details-marker{display:none}
+.secondary-details summary span{font-size:12px;color:#64748b;font-weight:500}
+.secondary-body{padding:0 16px 16px}
+.mkt-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
+.mkt-card{background:#fff;border-radius:10px;padding:12px 16px;min-width:160px;box-shadow:0 1px 4px rgba(0,0,0,.08);position:relative;cursor:default}
+.mkt-card .mname{font-size:12px;color:#888;margin-bottom:2px}
+.mkt-card .mprice{font-size:18px;font-weight:700}
+.mkt-card .mchg{font-size:13px;margin-top:2px;font-weight:600}
+.mkt-card .muted{color:#94a3b8}
+.mkt-card-del{position:absolute;top:6px;right:8px;background:none;border:none;color:#ccc;cursor:pointer;font-size:14px}
+.mkt-card-del:hover{color:#ff4d4f}
+.mkt-section-title{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.8px;margin:8px 0 6px}
+.valuation-table{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:auto;margin-bottom:18px}
+.valuation-table table{min-width:900px}
+.status-pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;background:#f1f5f9;color:#475569}
+.status-pill.ok{background:#ecfdf5;color:#047857}
+.status-pill.est{background:#eff6ff;color:#1d4ed8}
+.status-pill.warn{background:#fff7e6;color:#b45309}
+.status-pill.bad{background:#fff1f2;color:#be123c}
+.quote-note{font-size:12px;color:#888;margin-left:8px}
+/* ── Notes ── */
+.notes-area{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:13px;resize:vertical;min-height:80px;font-family:inherit}
+.notes-area:focus{outline:none;border-color:#2563eb}
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:500;transition:all .15s;white-space:nowrap}
+.btn-primary{background:#2563eb;color:#fff}.btn-primary:hover{background:#1d4ed8}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-warn{background:#d97706;color:#fff}.btn-warn:hover{background:#b45309}
+.btn-danger{background:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
+.btn-ghost{background:#f1f5f9;color:#334155}.btn-ghost:hover{background:#e2e8f0}
+/* ── Modal ── */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center}
+.modal.open{display:flex}
+.modal-box{background:#fff;border-radius:14px;padding:24px;width:90%;max-width:560px;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
+.modal-box h3{font-size:16px;font-weight:700;margin-bottom:16px}
+.field-map-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0f0f0}
+.field-map-row:last-child{border-bottom:none}
+.fmr-excel{font-size:13px;color:#555;flex:1;font-family:monospace}
+.fmr-arrow{color:#aaa;font-size:16px}
+.fmr-tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px}
+.tag-core{background:#fff4e6;color:#b45309}
+.tag-opt{background:#eff6ff;color:#1d4ed8}
+.tag-extra{background:#f4f4f5;color:#52525b}
+.tag-skip{background:#fff0f0;color:#cf1322}
+.modal-footer{margin-top:16px;display:flex;justify-content:flex-end;gap:10px}
+/* ── Toast ── */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:9px 20px;border-radius:20px;font-size:13px;display:none;z-index:10000;pointer-events:none}
+/* ── responsive ── */
+@media(max-width:760px){
+  #topbar{height:auto;min-height:54px;padding:10px 12px;gap:10px;align-items:flex-start}
+  #topbar h1{font-size:16px;line-height:1.8}
+  #topbar .actions{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  .snapshot-info{width:100%;text-align:right;font-size:11px}
+  .tab-pane{padding:14px 12px}
+  .kpi-row,.owner-row,.chart-row{flex-direction:column}
+  .tab-btn{padding:10px 14px;font-size:13px}
+  .focus-grid,.quality-grid{grid-template-columns:1fr}
+  .alloc-row{grid-template-columns:74px 1fr 82px}
+  .owner-share-row{grid-template-columns:80px 1fr 92px}
+  .issue-row{grid-template-columns:1fr}
+  .settings-grid,.owner-target-grid{grid-template-columns:1fr}
+  .market-tools input{width:100%}
+  .market-tools .btn{flex:1;justify-content:center}
+  .detail-disclosure summary,.secondary-details summary,.advanced-config summary{align-items:flex-start;gap:8px;flex-direction:column}
+  .reb-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div id="topbar">
+  <h1>家庭资金治理台 <span style="font-size:11px;opacity:.6;font-weight:400">v4</span></h1>
+  <div class="actions">
+    <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">导入</button>
+    <input type="file" id="fileInput" accept=".json,.xlsx,.xls,.csv" style="display:none">
+    <button class="btn btn-primary" onclick="saveSnap()">确认快照</button>
+    <span id="snapshotInfo" class="snapshot-info"></span>
+  </div>
+</div>
+
+<!-- Alert Banner -->
+<div id="alertBanner"><span id="alertTxt"></span><span class="alert-close" onclick="this.parentNode.style.display='none'">✕</span></div>
+
+<!-- Tabs -->
+<div id="tabBar">
+  <button class="tab-btn active" data-tab="overview">合并总览</button>
+  <button class="tab-btn" data-tab="ownerA">责任人 A</button>
+  <button class="tab-btn" data-tab="ownerB">责任人 B</button>
+  <button class="tab-btn" data-tab="market">估值监控</button>
+  <button class="tab-btn" data-tab="settings">设置</button>
+</div>
+
+<!-- ═══ OVERVIEW TAB ════════════════════════════════════════════════════ -->
+<div id="pane-overview" class="tab-pane active">
+  <div class="kpi-row" id="kpiRow"></div>
+  <div class="owner-row" id="ownerRow"></div>
+  <div id="focusPanel" class="focus-grid"></div>
+  <div class="chart-row">
+    <div class="chart-box"><h4>资产大类分布（合并）</h4><canvas id="chartAlloc"></canvas><div id="allocBars"></div></div>
+    <div class="chart-box"><h4>责任人占比</h4><canvas id="chartOwner"></canvas><div id="ownerShareBars"></div></div>
+  </div>
+  <div class="chart-row">
+    <div class="chart-box"><h4>参照标的贡献</h4><div id="exposureImpact"></div></div>
+    <div class="chart-box"><h4>待处理事项</h4><div id="actionItems"></div></div>
+  </div>
+  <details class="detail-disclosure">
+    <summary>资产明细与编辑 <span>默认收起，导入、调整和核对时再打开</span></summary>
+    <div class="sec-hdr" style="padding:0 16px 10px"><h3>全部资产明细</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-success" onclick="addRow()">新增</button>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table><thead id="tblHead"></thead><tbody id="tblBody"></tbody></table></div>
+  </details>
+  <div class="sec-hdr"><h3>再平衡建议（合并）</h3></div>
+  <div id="rebAll"></div>
+</div>
+
+<!-- ═══ OWNER A TAB ════════════════════════════════════════════════════ -->
+<div id="pane-ownerA" class="tab-pane">
+  <div class="kpi-row" id="kpiRowA"></div>
+  <div class="chart-row">
+    <div class="chart-box"><h4>责任人 A · 资产大类分布</h4><canvas id="chartAllocA"></canvas><div id="allocBarsA"></div></div>
+  </div>
+  <div class="sec-hdr"><h3>责任人 A · 资产明细</h3>
+    <button class="btn btn-success" onclick="addRow('A')">＋ 新增</button>
+  </div>
+  <div class="tbl-wrap"><table><thead id="tblHeadA"></thead><tbody id="tblBodyA"></tbody></table></div>
+  <div class="sec-hdr"><h3>再平衡建议（责任人 A）</h3></div>
+  <div id="rebA"></div>
+  <div style="margin-top:14px">
+    <div class="sec-hdr"><h3>备忘录</h3></div>
+    <textarea id="notesA" class="notes-area" placeholder="责任人 A 的备注…" oninput="save()"></textarea>
+  </div>
+</div>
+
+<!-- ═══ OWNER B TAB ════════════════════════════════════════════════════ -->
+<div id="pane-ownerB" class="tab-pane">
+  <div class="kpi-row" id="kpiRowB"></div>
+  <div class="chart-row">
+    <div class="chart-box"><h4>责任人 B · 资产大类分布</h4><canvas id="chartAllocB"></canvas><div id="allocBarsB"></div></div>
+  </div>
+  <div class="sec-hdr"><h3>责任人 B · 资产明细</h3>
+    <button class="btn btn-success" onclick="addRow('B')">＋ 新增</button>
+  </div>
+  <div class="tbl-wrap"><table><thead id="tblHeadB"></thead><tbody id="tblBodyB"></tbody></table></div>
+  <div class="sec-hdr"><h3>再平衡建议（责任人 B）</h3></div>
+  <div id="rebB"></div>
+  <div style="margin-top:14px">
+    <div class="sec-hdr"><h3>备忘录</h3></div>
+    <textarea id="notesB" class="notes-area" placeholder="责任人 B 的备注…" oninput="save()"></textarea>
+  </div>
+</div>
+
+<!-- ═══ MARKET TAB ════════════════════════════════════════════════════ -->
+<div id="pane-market" class="tab-pane">
+  <div class="market-tools">
+    <input id="mktCodeInput" placeholder="输入代码如 sh510300">
+    <button class="btn btn-primary" onclick="addWatch()">＋ 添加自选</button>
+    <button class="btn btn-ghost" onclick="fetchMarket()">刷新行情</button>
+    <button class="btn btn-ghost" onclick="document.getElementById('quoteInput').click()">导入估值缓存</button>
+    <input type="file" id="quoteInput" accept=".json" style="display:none">
+    <button class="btn btn-ghost" onclick="downloadQuoteTemplate()">缓存模板</button>
+    <span id="mktTs" style="font-size:12px;color:#aaa"></span>
+  </div>
+  <div id="valuationQualitySummary" class="quality-grid"></div>
+  <div class="chart-row">
+    <div class="chart-box"><h4>待补估值依据</h4><div id="valuationIssues"></div></div>
+    <div class="chart-box"><h4>最大敞口</h4><div id="marketExposureList"></div></div>
+  </div>
+  <div class="mkt-section-title">参照标的与估值质量</div>
+  <div id="valuationGrid" class="valuation-table"></div>
+  <details class="secondary-details">
+    <summary>自选行情和大盘指数 <span>辅助核对，默认收起</span></summary>
+    <div class="secondary-body">
+      <div class="mkt-section-title">自选行情</div>
+      <div id="mktGrid" class="mkt-grid"></div>
+      <div class="mkt-section-title" style="margin-top:10px">大盘指数</div>
+      <div id="mktIndexGrid" class="mkt-grid"></div>
+    </div>
+  </details>
+</div>
+
+<!-- ═══ SETTINGS TAB ════════════════════════════════════════════════════ -->
+<div id="pane-settings" class="tab-pane">
+  <div class="chart-box" style="margin-bottom:18px">
+    <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">经典配置参考</h4>
+    <div class="preset-grid" id="presetGrid"></div>
+    <div style="font-size:12px;color:#888">配置按钮会应用到合并、责任人 A、责任人 B 三组目标；合计不必强制 100%，系统会按权重归一化计算再平衡。</div>
+  </div>
+  <div class="settings-grid">
+
+    <!-- All targets -->
+    <div class="chart-box">
+      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">目标配置比例（合并）</h4>
+      <div id="slidersAll"></div>
+      <div id="targetSumAll" class="sum-ok" style="margin-top:8px;font-size:12px;padding:4px 8px;border-radius:4px">合计：0%</div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="chart-box">
+      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">总资产预警阈值</h4>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <label style="font-size:13px;color:#555">跌幅预警（%）
+          <input id="alertDown" type="number" value="5" min="0" max="50" step="0.5"
+            style="margin-left:8px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;width:80px;font-size:13px" oninput="save()">
+        </label>
+        <label style="font-size:13px;color:#555">涨幅预警（%）
+          <input id="alertUp" type="number" value="10" min="0" max="100" step="0.5"
+            style="margin-left:8px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;width:80px;font-size:13px" oninput="save()">
+        </label>
+      </div>
+    </div>
+
+    <details class="advanced-config">
+      <summary>责任人目标配置 <span>高级设置，默认沿用合并目标即可</span></summary>
+      <div class="advanced-body">
+        <div class="owner-target-grid">
+          <div>
+            <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">责任人 A</h4>
+            <div id="slidersA"></div>
+            <div id="targetSumA" class="sum-ok" style="margin-top:8px;font-size:12px;padding:4px 8px;border-radius:4px">合计：0%</div>
+          </div>
+          <div>
+            <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">责任人 B</h4>
+            <div id="slidersB"></div>
+            <div id="targetSumB" class="sum-ok" style="margin-top:8px;font-size:12px;padding:4px 8px;border-radius:4px">合计：0%</div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <div class="chart-box">
+      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">数据管理</h4>
+      <div class="settings-card-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">导入文件</button>
+        <button class="btn btn-ghost" onclick="exportJSON()">导出备份</button>
+        <button class="btn btn-danger" onclick="clearAll()">清空数据</button>
+      </div>
+      <div style="font-size:12px;color:#888;margin-top:10px">这些操作属于偶尔维护，已从首页顶部下沉到设置页。</div>
+    </div>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal" id="importModal">
+  <div class="modal-box">
+    <h3>字段映射确认</h3>
+    <p style="font-size:13px;color:#888;margin-bottom:14px">
+      <span style="background:#fff4e6;color:#b45309;padding:1px 6px;border-radius:4px;font-weight:700">橙色</span> = 固定核心列 &nbsp;
+      <span style="background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:4px;font-weight:700">蓝色</span> = 可选功能列 &nbsp;
+      <span style="background:#f4f4f5;color:#52525b;padding:1px 6px;border-radius:4px;font-weight:700">灰色</span> = 自定义列
+    </p>
+    <div id="fieldMapList"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="cancelImport()">取消</button>
+      <button class="btn btn-primary" onclick="confirmImport()">确认导入</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  CONSTANTS
+// ══════════════════════════════════════════════════════════════
+const CATS = ['现金/存款','固收/理财','基金/ETF','股票','加密/另类','其他'];
+const CAT_COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#64748b'];
+const LS_KEY = 'fgov_v4';
+const REMOTE_QUOTE_CACHE_URL = 'data/quotes_cache_latest.json';
+
+// ── Field alias maps for fuzzy matching ──
+// CORE: MUST resolve to these 4 keys
+const CORE_ALIASES = {
+  owner: ['归属责任人','责任人','owner','持有人','归属人'],
+  name:  ['资产名称','名称','品名','name','资产'],
+  cat:   ['资产大类','大类','类别','分类','category','cat','类型'],
+  amount:['当前金额','余额','金额','当前余额','市值','总金额','当前市值','amount','balance','当前金额/余额']
+};
+// OPTIONAL: nice-to-have functional keys
+const OPT_ALIASES = {
+  code:  ['行情代码','代码','证券代码','股票代码','code','ticker','symbol'],
+  shares:['持有数量','份额','数量','持仓数量','持有份额','shares','qty'],
+  cost:  ['买入成本','成本','成本价','均价','买入价','cost','avg'],
+  nav:   ['现在价格','现价','最新净值','单位净值','净值','nav','price'],
+  note:  ['备注','note','notes','说明','描述','remark']
+};
+
+function normalizeHeader(h){
+  return String(h||'').trim().replace(/[（(）)\s\/\\]/g,'').toLowerCase();
+}
+function matchCol(header){
+  const clean = normalizeHeader(header);
+  const candidates = [];
+  for(const [field,names] of Object.entries(CORE_ALIASES)){
+    names.forEach(name=>{
+      const alias = normalizeHeader(name);
+      if(alias && clean.includes(alias)) candidates.push({type:'core', field, score:alias.length});
+    });
+  }
+  for(const [field,names] of Object.entries(OPT_ALIASES)){
+    names.forEach(name=>{
+      const alias = normalizeHeader(name);
+      if(alias && clean.includes(alias)) candidates.push({type:'opt', field, score:alias.length});
+    });
+  }
+  if(candidates.length){
+    candidates.sort((a,b)=>b.score-a.score || (a.type==='core'?-1:1));
+    return {type:candidates[0].type, field:candidates[0].field};
+  }
+  return {type:'extra'};
+}
+function findHeaderRow(data){
+  let bestIdx = -1, bestScore = -1;
+  data.slice(0,20).forEach((row,idx)=>{
+    const found = new Set(row.map(h=>matchCol(h)).filter(c=>c.type==='core').map(c=>c.field));
+    const score = found.size;
+    if(score>bestScore){ bestScore=score; bestIdx=idx; }
+  });
+  return bestScore>=2 ? bestIdx : -1;
+}
+function getImportTable(data){
+  const headerIdx = findHeaderRow(data);
+  if(headerIdx<0) return null;
+  const headers = data[headerIdx].map(h=>String(h).trim());
+  const bodyRows = data.slice(headerIdx+1).filter(r=>r.some(c=>String(c).trim()!==''));
+  return {headers, bodyRows};
+}
+function parseMoney(val){
+  return parseFloat(String(val).replace(/[,，¥￥\s]/g,''))||0;
+}
+
+const BENCHMARK_RULES = [
+  {name:'沪深300', code:'sh000300', re:/沪深\s*300|hs300|300ETF|300联接/i},
+  {name:'中证A500', code:'', re:/中证\s*A?\s*500|A500/i},
+  {name:'中证红利低波', code:'', re:/红利低波|低波红利|红利.*低波/i},
+  {name:'科创50', code:'sh000688', re:/科创\s*50|科创板50/i},
+  {name:'科创100', code:'', re:/科创\s*100|科创板100/i},
+  {name:'创业板指', code:'sz399006', re:/创业板|创业板指/i},
+  {name:'上证50', code:'sh000016', re:/上证\s*50/i},
+  {name:'纳斯达克100', code:'', re:/纳斯达克\s*100|纳指\s*100|NASDAQ\s*100/i},
+  {name:'标普500', code:'', re:/标普\s*500|S&P\s*500|SP500/i},
+  {name:'黄金', code:'', re:/黄金|gold/i}
+];
+const ALLOCATION_PRESETS = [
+  {name:'稳健型', desc:'固收为主，权益适中', values:{'现金/存款':10,'固收/理财':50,'基金/ETF':30,'股票':5,'加密/另类':5,'其他':0}},
+  {name:'均衡型', desc:'股债均衡，长期默认', values:{'现金/存款':5,'固收/理财':35,'基金/ETF':45,'股票':10,'加密/另类':5,'其他':0}},
+  {name:'成长型', desc:'权益占比更高', values:{'现金/存款':5,'固收/理财':15,'基金/ETF':55,'股票':20,'加密/另类':5,'其他':0}},
+  {name:'全天候参考', desc:'分散到债券和另类', values:{'现金/存款':0,'固收/理财':55,'基金/ETF':25,'股票':5,'加密/另类':15,'其他':0}}
+];
+function normalizeCategory(val){
+  const s = String(val||'').trim();
+  if(!s) return '其他';
+  if(CATS.includes(s)) return s;
+  if(/现金|存款|活期|货币|余额宝|零钱通/i.test(s)) return '现金/存款';
+  if(/固收|理财|债券|国债|定期|存单|收益凭证/i.test(s)) return '固收/理财';
+  if(/基金|ETF|联接|指数|混合/i.test(s)) return '基金/ETF';
+  if(/股票|A股|港股|美股|个股/i.test(s)) return '股票';
+  if(/黄金|加密|另类|商品|数字货币/i.test(s)) return '加密/另类';
+  return '其他';
+}
+function inferBenchmark(row){
+  const text = [row.name,row.code,row.note,row.benchmark].filter(Boolean).join(' ');
+  const hit = BENCHMARK_RULES.find(r=>r.re.test(text));
+  return hit ? hit.name : '';
+}
+function benchmarkCode(name){
+  const hit = BENCHMARK_RULES.find(r=>r.name===name);
+  return hit ? hit.code : '';
+}
+function getQuoteStore(){
+  if(!S.quoteCache) S.quoteCache = {asOf:'', funds:{}, benchmarks:{}, securities:{}};
+  S.quoteCache.funds = S.quoteCache.funds || {};
+  S.quoteCache.benchmarks = S.quoteCache.benchmarks || {};
+  S.quoteCache.securities = S.quoteCache.securities || {};
+  return S.quoteCache;
+}
+function normalizeQuote(raw){
+  if(!raw) return null;
+  return {
+    name: raw.name || '',
+    nav: raw.nav!==undefined ? parseMoney(raw.nav) : undefined,
+    price: raw.price!==undefined ? parseMoney(raw.price) : undefined,
+    chgPct: raw.chgPct!==undefined ? parseFloat(raw.chgPct) : (raw.chg!==undefined ? parseFloat(raw.chg) : undefined),
+    asOf: raw.asOf || raw.date || ''
+  };
+}
+function getBenchmarkQuote(name){
+  if(!name) return null;
+  const cache = getQuoteStore();
+  const cached = normalizeQuote(cache.benchmarks[name]);
+  if(cached) return cached;
+  const code = benchmarkCode(name);
+  const md = code ? mktData[code] : null;
+  return md ? {name, price:md.price, chgPct:md.chg, asOf:'实时行情'} : null;
+}
+function getSecurityQuote(code){
+  if(!code) return null;
+  const c = String(code).trim().toLowerCase();
+  const cache = getQuoteStore();
+  return normalizeQuote(cache.securities[c]) || (mktData[c] ? {name:mktData[c].name, price:mktData[c].price, chgPct:mktData[c].chg, asOf:'实时行情'} : null);
+}
+function getValuation(row){
+  const base = parseFloat(row.amount)||0;
+  const shares = parseFloat(row.shares)||0;
+  const code = String(row.code||'').trim().toLowerCase();
+  const cache = getQuoteStore();
+  const benchmark = row.benchmark || inferBenchmark(row);
+  if(normalizeCategory(row.cat)==='现金/存款'){
+    return {amount:base, status:'现金金额', cls:'ok', benchmark:'现金/存款', quote:null, asOf:'导入文件'};
+  }
+  const fundQuote = normalizeQuote(cache.funds[code]);
+  if(fundQuote && fundQuote.nav && shares){
+    return {amount:shares*fundQuote.nav, status:'基金净值', cls:'ok', benchmark, quote:fundQuote.nav, asOf:fundQuote.asOf};
+  }
+  if(row.nav && shares){
+    return {amount:shares*parseFloat(row.nav), status:'导入净值', cls:'ok', benchmark, quote:parseFloat(row.nav), asOf:'导入文件'};
+  }
+  const securityQuote = getSecurityQuote(code);
+  if(securityQuote && securityQuote.price && shares){
+    return {amount:shares*securityQuote.price, status:'场内行情', cls:'ok', benchmark, quote:securityQuote.price, asOf:securityQuote.asOf};
+  }
+  if(securityQuote && isFinite(securityQuote.chgPct) && base){
+    return {amount:base*(1+securityQuote.chgPct/100), status:'行情估算', cls:'est', benchmark, quote:securityQuote.chgPct, asOf:securityQuote.asOf};
+  }
+  const benchQuote = getBenchmarkQuote(benchmark);
+  if(benchQuote && isFinite(benchQuote.chgPct) && base){
+    return {amount:base*(1+benchQuote.chgPct/100), status:'指数估算', cls:'est', benchmark, quote:benchQuote.chgPct, asOf:benchQuote.asOf};
+  }
+  if(normalizeCategory(row.cat)==='固收/理财'){
+    return {amount:base, status:'沿用导入金额', cls:'est', benchmark:'固收/理财', quote:null, asOf:'导入文件'};
+  }
+  return {amount:base, status:benchmark?'等待数据':'仅导入金额', cls:benchmark?'warn':'bad', benchmark, quote:null, asOf:''};
+}
+function getRowValue(row){ return getValuation(row).amount; }
+function fmtSigned(n){ return n>=0 ? '+'+fmt(n) : '-'+fmt(Math.abs(n)); }
+function formatQuote(v, status){
+  if(v===null || v===undefined || v==='') return '—';
+  return /估算/.test(status) ? ((v>=0?'+':'')+Number(v).toFixed(2)+'%') : Number(v).toFixed(4);
+}
+function isRealtimeCode(code){
+  return /^(sh|sz)\d{6}$/i.test(String(code||'').trim());
+}
+function getRealtimeCodes(){
+  const fromRows = S.rows.flatMap(r=>{
+    const codes = [];
+    if(isRealtimeCode(r.code)) codes.push(String(r.code).trim().toLowerCase());
+    const bCode = benchmarkCode(r.benchmark || inferBenchmark(r));
+    if(bCode) codes.push(bCode);
+    return codes;
+  });
+  return [...new Set([...S.watchlist.filter(isRealtimeCode), ...fromRows, ...INDEX_CODES])];
+}
+
+// ── Default state ──
+const DEF_STATE = () => ({
+  rows: [], nextId: 1,
+  extraFields: [],  // [{key, label}] — user custom columns in order
+  targets: {
+    all: {'现金/存款':20,'固收/理财':20,'基金/ETF':30,'股票':15,'加密/另类':10,'其他':5},
+    A:   {'现金/存款':20,'固收/理财':20,'基金/ETF':30,'股票':15,'加密/另类':10,'其他':5},
+    B:   {'现金/存款':20,'固收/理财':20,'基金/ETF':30,'股票':15,'加密/另类':10,'其他':5}
+  },
+  watchlist: [],
+  quoteCache: {asOf:'', funds:{}, benchmarks:{}, securities:{}},
+  snapshot: null,
+  notesA: '', notesB: '',
+  alertDown: 5, alertUp: 10
+});
+
+let S = DEF_STATE();
+let mktData = {};
+let mktTimer = null;
+let charts = {};
+let pendingRows = [], pendingExtra = [], pendingMap = [];
+
+// ══════════════════════════════════════════════════════════════
+//  PERSIST
+// ══════════════════════════════════════════════════════════════
+function save(){
+  S.notesA = document.getElementById('notesA').value;
+  S.notesB = document.getElementById('notesB').value;
+  S.alertDown = parseFloat(document.getElementById('alertDown').value)||5;
+  S.alertUp   = parseFloat(document.getElementById('alertUp').value)||10;
+  localStorage.setItem(LS_KEY, JSON.stringify(S));
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw) S = Object.assign(DEF_STATE(), JSON.parse(raw));
+    // back-compat: ensure extraFields
+    if(!S.extraFields) S.extraFields=[];
+    if(!S.quoteCache) S.quoteCache={asOf:'', funds:{}, benchmarks:{}, securities:{}};
+  }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════════════════════════
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('pane-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='market') fetchMarket();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+//  TABLE RENDERING
+// ══════════════════════════════════════════════════════════════
+// Build ordered column spec: CORE (4) → matched OPT → EXTRA
+function getColSpec(){
+  const optPresent = [];
+  const optKeys = Object.keys(OPT_ALIASES);
+  optKeys.forEach(k=>{
+    // include opt column if ANY row has that field
+    if(S.rows.some(r=>r[k]!==undefined && r[k]!==''))
+      optPresent.push(k);
+  });
+  // always show all opt cols so user can fill in
+  optKeys.forEach(k=>{ if(!optPresent.includes(k)) optPresent.push(k); });
+
+  const coreCols = [
+    {key:'owner',  label:'归属责任人', type:'core', w:'120px'},
+    {key:'name',   label:'资产名称',   type:'core', w:'150px'},
+    {key:'cat',    label:'资产大类',   type:'core', w:'110px'},
+    {key:'amount', label:'导入金额', type:'core', w:'130px'},
+  ];
+  const optCols = [
+    {key:'code',   label:'行情代码',   type:'opt', w:'110px'},
+    {key:'shares', label:'持有数量',   type:'opt', w:'100px'},
+    {key:'cost',   label:'买入成本',   type:'opt', w:'100px'},
+    {key:'nav',    label:'导入净值',   type:'opt', w:'90px'},
+  ];
+  const computedCols = [
+    {key:'_benchmark', label:'参照标的', type:'opt', w:'110px', readonly:true},
+    {key:'_quote',     label:'净值/涨跌', type:'opt', w:'90px', readonly:true},
+    {key:'_sync',      label:'同步金额', type:'opt', w:'120px', readonly:true},
+    {key:'_pnl',       label:'较导入', type:'opt', w:'100px', readonly:true},
+    {key:'_status',    label:'估值状态', type:'opt', w:'100px', readonly:true},
+  ];
+  const noteCols = [
+    {key:'note',   label:'备注',    type:'opt', w:'120px'},
+  ];
+  const extraCols = S.extraFields.map(ef=>({
+    key: 'extra:'+ef.key, label: ef.label, type:'extra', w:'120px'
+  }));
+  return [...coreCols, ...optCols, ...computedCols, ...noteCols, ...extraCols];
+}
+
+function renderTable(scope){
+  // scope: 'all' | 'A' | 'B'
+  const suffix = scope==='all'?'':scope;
+  const headId = suffix?'tblHead'+suffix:'tblHead';
+  const bodyId = suffix?'tblBody'+suffix:'tblBody';
+
+  const thead = document.getElementById(headId);
+  const tbody = document.getElementById(bodyId);
+  if(!thead||!tbody) return;
+
+  const cols = getColSpec();
+  const rows = scope==='all'? S.rows : S.rows.filter(r=>r.owner===('责任人 '+scope));
+
+  // ── Header ──
+  thead.innerHTML = '<tr>'+
+    cols.map(c=>`<th class="col-${c.type}" style="min-width:${c.w}">${c.label}</th>`).join('')+
+    '<th style="width:40px"></th>'+
+  '</tr>';
+
+  // ── Body ──
+  let html = '';
+  rows.forEach(row=>{
+    const id = row.id;
+    html += `<tr data-id="${id}">`;
+    cols.forEach(c=>{
+      html += '<td>';
+      const valuation = getValuation(row);
+      if(c.key==='_benchmark'){
+        html += `<span class="price-cell">${valuation.benchmark||'—'}</span>`;
+      } else if(c.key==='_quote'){
+        html += `<span class="price-cell">${formatQuote(valuation.quote, valuation.status)}</span>`;
+      } else if(c.key==='_sync'){
+        html += `<span class="mv-cell">${fmt(valuation.amount)}</span>`;
+      } else if(c.key==='_pnl'){
+        const p = valuation.amount - (parseFloat(row.amount)||0);
+        const cls=p>0?'rise':p<0?'fall':'flat';
+        const pnl = Math.abs(p)<0.01?'—':fmtSigned(p);
+        html += `<span class="pnl-cell ${cls}">${pnl}</span>`;
+      } else if(c.key==='_status'){
+        html += `<span class="status-pill ${valuation.cls}">${valuation.status}</span>`;
+      } else if(c.key==='owner'){
+        html += `<select data-id="${id}" data-f="owner">
+          <option ${row.owner==='责任人 A'?'selected':''}>责任人 A</option>
+          <option ${row.owner==='责任人 B'?'selected':''}>责任人 B</option>
+        </select>`;
+      } else if(c.key==='cat'){
+        const currentCat = normalizeCategory(row.cat);
+        row.cat = currentCat;
+        html += `<select data-id="${id}" data-f="cat">`+
+          CATS.map(cat=>`<option ${currentCat===cat?'selected':''}>${cat}</option>`).join('')+
+          '</select>';
+      } else if(c.key==='amount'){
+        html += `<input type="number" data-id="${id}" data-f="amount" value="${row.amount||''}" placeholder="0" style="text-align:right">`;
+      } else if(c.key==='shares'||c.key==='cost'||c.key==='nav'){
+        html += `<input type="number" data-id="${id}" data-f="${c.key}" value="${row[c.key]||''}" placeholder="—">`;
+      } else if(c.key.startsWith('extra:')){
+        const ek = c.key.slice(6);
+        const val = (row.extra&&row.extra[ek])||'';
+        html += `<input data-id="${id}" data-f="extra:${ek}" value="${escHtml(val)}" placeholder="—">`;
+      } else {
+        html += `<input data-id="${id}" data-f="${c.key}" value="${escHtml(row[c.key]||'')}" placeholder="—">`;
+      }
+      html += '</td>';
+    });
+    html += `<td><button class="del-btn" data-id="${id}">✕</button></td></tr>`;
+  });
+  tbody.innerHTML = html;
+}
+
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Event delegation for all tables
+['tblBody','tblBodyA','tblBodyB'].forEach(tbId=>{
+  document.getElementById(tbId).addEventListener('input', e=>{
+    const el = e.target.closest('[data-id][data-f]');
+    if(!el) return;
+    const id = parseInt(el.dataset.id);
+    const f  = el.dataset.f;
+    const row = S.rows.find(r=>r.id===id);
+    if(!row) return;
+    if(f.startsWith('extra:')){
+      const ek = f.slice(6);
+      if(!row.extra) row.extra={};
+      row.extra[ek] = el.value;
+    } else {
+      row[f] = el.value;
+    }
+    save();
+    renderAll(true); // light refresh
+  });
+  document.getElementById(tbId).addEventListener('click', e=>{
+    const btn = e.target.closest('.del-btn');
+    if(!btn) return;
+    const id = parseInt(btn.dataset.id);
+    S.rows = S.rows.filter(r=>r.id!==id);
+    save();
+    renderAll();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+//  CHARTS
+// ══════════════════════════════════════════════════════════════
+function buildChartData(rows){
+  const totals = {};
+  CATS.forEach(c=>totals[c]=0);
+  rows.forEach(r=>{ const cat=normalizeCategory(r.cat); if(totals[cat]!==undefined) totals[cat]+=getRowValue(r); });
+  return {labels:Object.keys(totals),data:Object.values(totals)};
+}
+function summarizeCategories(rows){
+  const totalVal = rows.reduce((s,r)=>s+getRowValue(r),0);
+  return CATS.map((cat,i)=>{
+    const amount = rows.filter(r=>normalizeCategory(r.cat)===cat).reduce((s,r)=>s+getRowValue(r),0);
+    return {cat, amount, pct:totalVal?amount/totalVal*100:0, color:CAT_COLORS[i]};
+  });
+}
+function renderAllocationBars(elId, rows){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const data = summarizeCategories(rows);
+  if(!rows.length || !data.some(d=>d.amount>0)){
+    el.innerHTML = '<div class="alloc-empty">暂无可计算资产</div>';
+    return;
+  }
+  el.innerHTML = '<div class="alloc-list">'+data.map(d=>`
+    <div class="alloc-row">
+      <div class="alloc-name">${d.cat}</div>
+      <div class="alloc-bar"><div class="alloc-fill" style="width:${Math.min(d.pct,100)}%;background:${d.color}"></div></div>
+      <div class="alloc-num">${d.pct.toFixed(1)}% · ${fmt(d.amount)}</div>
+    </div>`).join('')+'</div>';
+}
+function renderOwnerShareBars(){
+  const el = document.getElementById('ownerShareBars');
+  if(!el) return;
+  const rowsA = S.rows.filter(r=>r.owner==='责任人 A');
+  const rowsB = S.rows.filter(r=>r.owner==='责任人 B');
+  const data = [
+    {name:'责任人 A', amount:rowsA.reduce((s,r)=>s+getRowValue(r),0), color:'#2563eb'},
+    {name:'责任人 B', amount:rowsB.reduce((s,r)=>s+getRowValue(r),0), color:'#d97706'}
+  ];
+  const totalVal = data.reduce((s,d)=>s+d.amount,0);
+  if(!totalVal){
+    el.innerHTML = '<div class="alloc-empty">暂无责任人资产</div>';
+    return;
+  }
+  el.innerHTML = '<div class="owner-share-list">'+data.map(d=>{
+    const pct = totalVal?d.amount/totalVal*100:0;
+    return `<div class="owner-share-row">
+      <div class="owner-share-name">${d.name}</div>
+      <div class="owner-share-bar"><div class="owner-share-fill" style="width:${pct}%;background:${d.color}"></div></div>
+      <div class="owner-share-num">${pct.toFixed(1)}% · ${fmt(d.amount)}</div>
+    </div>`;
+  }).join('')+'</div>';
+}
+function makeOrUpdateChart(id, labels, data, colors){
+  const canvas = document.getElementById(id);
+  if(!canvas) return;
+  if(typeof Chart === 'undefined'){ canvas.style.display='none'; return; }
+  canvas.style.display='';
+  const ctx = canvas.getContext('2d');
+  if(charts[id]){ charts[id].data.datasets[0].data=data; charts[id].update(); return; }
+  charts[id] = new Chart(ctx,{
+    type:'doughnut',
+    data:{labels, datasets:[{data, backgroundColor:colors, borderWidth:2, borderColor:'#fff'}]},
+    options:{responsive:true, plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:8}},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${fmt(ctx.raw)} (${ctx.raw&&total(data)?((ctx.raw/total(data))*100).toFixed(1)+'%':'0%'})`}}}, cutout:'58%'}
+  });
+}
+function total(arr){ return arr.reduce((a,b)=>a+b,0); }
+
+// ══════════════════════════════════════════════════════════════
+//  KPI CARDS
+// ══════════════════════════════════════════════════════════════
+function fmt(n){ return n===undefined||n===''||isNaN(n)?'—':'¥'+(+n).toLocaleString('zh-CN',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+function fmtPct(n){ return isNaN(n)?'—':n.toFixed(1)+'%'; }
+function fmtDateTime(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function renderSnapshotInfo(){
+  const el = document.getElementById('snapshotInfo');
+  if(!el) return;
+  el.textContent = S.snapshot && S.snapshot.ts ? '上次快照 '+fmtDateTime(S.snapshot.ts) : '尚未确认快照';
+}
+
+function renderKPI(elId, rows, label){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const tot = rows.reduce((s,r)=>s+getRowValue(r),0);
+  const liquid = rows.filter(r=>normalizeCategory(r.cat)==='现金/存款').reduce((s,r)=>s+getRowValue(r),0);
+  const equity = rows.filter(r=>['基金/ETF','股票'].includes(normalizeCategory(r.cat))).reduce((s,r)=>s+getRowValue(r),0);
+  // max deviation
+  let maxDev=0;
+  // compute from totals per cat
+  const targets = S.targets[label.toLowerCase()==='合并'?'all':label.replace('责任人 ','')];
+  if(targets && tot>0){
+    const tsum = Object.values(targets).reduce((a,b)=>a+b,0);
+    const scale = tsum>0 ? 100/tsum : 0;
+    CATS.forEach(c=>{
+      const actual = rows.filter(r=>normalizeCategory(r.cat)===c).reduce((s,r)=>s+getRowValue(r),0)/tot*100;
+      const tgt = (targets[c]||0)*scale;
+      maxDev = Math.max(maxDev, Math.abs(actual-tgt));
+    });
+  }
+  el.innerHTML = [
+    {l:'总资产', v:fmt(tot), s:label},
+    {l:'资产条目', v:rows.length+'条', s:''},
+    {l:'流动性占比', v:fmtPct(tot?liquid/tot*100:0), s:'现金/存款'},
+    {l:'权益类占比', v:fmtPct(tot?equity/tot*100:0), s:'基金+股票'},
+    {l:'最大类别偏离', v:fmtPct(maxDev), s:'与目标比较'},
+  ].map(k=>`<div class="kpi-card"><div class="label">${k.l}</div><div class="val">${k.v}</div><div class="sub">${k.s}</div></div>`).join('');
+}
+
+function buildExposureGroups(){
+  const groups = {};
+  S.rows.forEach(row=>{
+    const v = getValuation(row);
+    const key = v.benchmark || normalizeCategory(row.cat) || '未归类';
+    if(!groups[key]) groups[key] = {name:key, count:0, owners:new Set(), base:0, value:0, statuses:{}, missing:0};
+    const g = groups[key];
+    g.count++;
+    g.owners.add(row.owner||'未分配');
+    g.base += parseFloat(row.amount)||0;
+    g.value += v.amount;
+    g.statuses[v.status] = (g.statuses[v.status]||0)+1;
+    if(v.cls==='warn'||v.cls==='bad') g.missing++;
+  });
+  return Object.values(groups).sort((a,b)=>b.value-a.value);
+}
+
+function getSnapshotDelta(){
+  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  if(!S.snapshot || !S.snapshot.total) return {has:false,total:totalVal,diff:0,pct:0,label:'尚未确认快照',ts:''};
+  const diff = totalVal - S.snapshot.total;
+  return {has:true,total:totalVal,diff,pct:S.snapshot.total?diff/S.snapshot.total*100:0,label:'较上次快照',ts:S.snapshot.ts||''};
+}
+function getValuationIssue(row, valuation=getValuation(row)){
+  const cat = normalizeCategory(row.cat);
+  if(valuation.status==='沿用导入金额'){
+    return {key:'fixed_carry', level:'info', title:'固收/理财沿用导入金额', action:'这类资产可不做日内估值，按导入金额进入合并金额'};
+  }
+  if(!['warn','bad'].includes(valuation.cls)) return null;
+  if(valuation.benchmark){
+    return {key:'benchmark_move', level:'warn', title:'缺参照涨跌', action:'在估值缓存 benchmarks 中补当日涨跌'};
+  }
+  if(cat==='基金/ETF' && row.code && !isRealtimeCode(row.code)){
+    return {key:'fund_nav', level:'warn', title:'基金缺净值', action:'在估值缓存 funds 中补单位净值'};
+  }
+  if(isRealtimeCode(row.code)){
+    return {key:'realtime_quote', level:'warn', title:'交易所行情未获取', action:'刷新行情或稍后再试'};
+  }
+  return {key:'missing_rule', level:'warn', title:'缺行情代码/参照标的', action:'补行情代码、基金净值，或让名称包含指数关键词'};
+}
+function getValuationQualityStats(){
+  const rows = S.rows.map(row=>({row, valuation:getValuation(row)}));
+  const priced = rows.filter(x=>['ok','est'].includes(x.valuation.cls) && x.valuation.status!=='沿用导入金额').length;
+  const carry = rows.filter(x=>x.valuation.status==='沿用导入金额').length;
+  const missing = rows.filter(x=>{
+    const issue = getValuationIssue(x.row, x.valuation);
+    return issue && issue.level==='warn';
+  }).length;
+  const usable = priced + carry;
+  return {
+    total: rows.length,
+    priced, carry, missing, usable,
+    coverage: rows.length ? Math.round(usable/rows.length*100) : 0,
+    totalVal: rows.reduce((s,x)=>s+x.valuation.amount,0),
+    baseVal: S.rows.reduce((s,r)=>s+(parseFloat(r.amount)||0),0)
+  };
+}
+function buildValuationIssueGroups(){
+  const groups = {};
+  S.rows.forEach(row=>{
+    const valuation = getValuation(row);
+    const issue = getValuationIssue(row, valuation);
+    if(!issue) return;
+    if(!groups[issue.key]) groups[issue.key] = {title:issue.title, action:issue.action, level:issue.level, count:0, amount:0, examples:[]};
+    const g = groups[issue.key];
+    g.count++;
+    g.amount += valuation.amount;
+    if(g.examples.length<3) g.examples.push(row.name||row.code||'未命名资产');
+  });
+  return Object.values(groups).sort((a,b)=>{
+    const aw = a.level==='warn'?1:0, bw = b.level==='warn'?1:0;
+    return bw-aw || b.amount-a.amount;
+  });
+}
+function buildActionItems(){
+  const items = [];
+  buildValuationIssueGroups().forEach(group=>{
+    items.push({level:group.level, title:`${group.title} ${group.count} 条`, detail:group.action});
+  });
+  const groups = buildExposureGroups();
+  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  const concentrated = groups.find(g=>totalVal && g.value/totalVal>0.35);
+  if(concentrated) items.push({level:'info', title:`${concentrated.name} 占比 ${(concentrated.value/totalVal*100).toFixed(1)}%`, detail:'已超过 35%，需要确认是否符合预期'});
+  if(!S.snapshot) items.unshift({level:'warn', title:'尚未确认快照', detail:'点击右上角“确认快照”后，首页会以较上次快照为主口径'});
+  return items;
+}
+function renderActionItems(){
+  const items = buildActionItems().slice(0,4);
+  if(!items.length) return '<div class="alloc-empty">暂无待处理事项</div>';
+  return '<div class="alloc-list">'+items.map(item=>`
+    <div class="alloc-row" style="grid-template-columns:120px 1fr 72px">
+      <div class="alloc-name">${item.title}</div>
+      <div style="font-size:12px;color:#64748b">${item.detail}</div>
+      <div class="status-pill ${item.level==='warn'?'warn':'est'}">${item.level==='warn'?'待处理':'关注'}</div>
+    </div>`).join('')+'</div>';
+}
+function renderExposureImpact(){
+  const el = document.getElementById('exposureImpact');
+  if(!el) return;
+  const groups = buildExposureGroups().map(g=>({name:g.name, value:g.value, diff:g.value-g.base, base:g.base}));
+  if(!groups.length){
+    el.innerHTML = '<div class="alloc-empty">暂无参照标的</div>';
+    return;
+  }
+  groups.sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+  const maxAbs = Math.max(...groups.map(g=>Math.abs(g.diff)),1);
+  el.innerHTML = '<div class="alloc-list">'+groups.slice(0,6).map(g=>{
+    const cls = g.diff>0?'rise':g.diff<0?'fall':'flat';
+    return `<div class="alloc-row" style="grid-template-columns:110px 1fr 122px">
+      <div class="alloc-name">${escHtml(g.name)}</div>
+      <div class="alloc-bar"><div class="alloc-fill" style="width:${Math.min(Math.abs(g.diff)/maxAbs*100,100)}%;background:${g.diff>=0?'#dc2626':'#16a34a'}"></div></div>
+      <div class="alloc-num ${cls}">${Math.abs(g.diff)<0.01?'—':fmtSigned(g.diff)}</div>
+    </div>`;
+  }).join('')+'</div>';
+}
+
+function renderValuationQualitySummary(){
+  const el = document.getElementById('valuationQualitySummary');
+  if(!el) return;
+  const stats = getValuationQualityStats();
+  const cacheDate = S.quoteCache && S.quoteCache.asOf ? S.quoteCache.asOf : '未导入';
+  el.innerHTML = [
+    {label:'同步金额', value:fmt(stats.totalVal), sub:stats.total?`较导入 ${fmtSigned(stats.totalVal-stats.baseVal)}`:'先导入持仓', cls:''},
+    {label:'金额覆盖', value:stats.total?stats.coverage+'%':'—', sub:stats.total?`${stats.usable}/${stats.total} 条可进入首页同步金额`:'先导入持仓', cls:stats.missing?'warn':'good'},
+    {label:'待补数据', value:stats.missing+'条', sub:stats.missing?'优先补净值或参照涨跌':'无关键缺口', cls:stats.missing?'warn':'good'},
+    {label:'沿用导入金额', value:stats.carry+'条', sub:'主要用于固收/理财等非日内估值资产', cls:stats.carry?'warn':''},
+    {label:'缓存日期', value:cacheDate, sub:'估值缓存 JSON 的 asOf/date 字段', cls:cacheDate==='未导入'?'warn':''}
+  ].map(c=>`<div class="quality-card ${c.cls}"><div class="label">${c.label}</div><div class="value">${c.value}</div><div class="sub">${c.sub}</div></div>`).join('');
+}
+function renderValuationIssues(){
+  const el = document.getElementById('valuationIssues');
+  if(!el) return;
+  const groups = buildValuationIssueGroups();
+  if(!S.rows.length){
+    el.innerHTML = '<div class="alloc-empty">暂无资产，导入持仓后检查估值质量</div>';
+    return;
+  }
+  if(!groups.length){
+    el.innerHTML = '<div class="alloc-empty">暂无待补估值依据</div>';
+    return;
+  }
+  el.innerHTML = '<div class="issue-list">'+groups.map(g=>{
+    const pillCls = g.level==='warn'?'warn':'est';
+    const pillTxt = g.level==='warn'?'待补':'确认';
+    return `<div class="issue-row">
+      <div class="issue-title">${g.title}</div>
+      <div class="issue-detail">${g.count} 条，${fmt(g.amount)}。${g.action}<br><span style="color:#94a3b8">${g.examples.map(escHtml).join('、')}</span></div>
+      <div class="status-pill ${pillCls}">${pillTxt}</div>
+    </div>`;
+  }).join('')+'</div>';
+}
+function renderMarketExposureList(){
+  const el = document.getElementById('marketExposureList');
+  if(!el) return;
+  const groups = buildExposureGroups();
+  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  if(!groups.length){
+    el.innerHTML = '<div class="alloc-empty">暂无参照标的</div>';
+    return;
+  }
+  el.innerHTML = '<div class="issue-list">'+groups.slice(0,6).map(g=>{
+    const pct = totalVal ? g.value/totalVal*100 : 0;
+    const statuses = Object.entries(g.statuses).map(([k,v])=>`${k} ${v}`).join(' / ');
+    return `<div class="issue-row">
+      <div class="issue-title">${escHtml(g.name)}</div>
+      <div class="issue-detail">${fmt(g.value)} · ${pct.toFixed(1)}% · ${g.count} 条<br><span style="color:#94a3b8">${escHtml(statuses)}</span></div>
+      <div class="status-pill ${g.missing?'warn':'ok'}">${g.missing?'有缺口':'可用'}</div>
+    </div>`;
+  }).join('')+'</div>';
+}
+
+function renderFocusPanel(){
+  const el = document.getElementById('focusPanel');
+  if(!el) return;
+  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  const baseVal = S.rows.reduce((s,r)=>s+(parseFloat(r.amount)||0),0);
+  const snap = getSnapshotDelta();
+  const importDiff = totalVal - baseVal;
+  const groups = buildExposureGroups();
+  const top = groups[0];
+  const quality = getValuationQualityStats();
+  const diffCls = snap.has ? (snap.diff>0?'good':snap.diff<0?'bad':'') : 'warn';
+  el.innerHTML = [
+    {label:snap.label, value:snap.has?fmtSigned(snap.diff):'待确认', sub:snap.has?((snap.pct>=0?'+':'')+snap.pct.toFixed(2)+'%，上次 '+(fmtDateTime(snap.ts)||'未记录')):'点击“确认快照”建立日常比较基准', cls:diffCls},
+    {label:'最大敞口', value:top?top.name:'—', sub:top?`${fmt(top.value)} · ${totalVal?(top.value/totalVal*100).toFixed(1):'0.0'}%`:'暂无资产', cls:''},
+    {label:'金额覆盖', value:quality.total?quality.coverage+'%':'—', sub:quality.total?`${quality.usable}/${quality.total} 条可用于同步，较导入 ${fmtSigned(importDiff)}`:'先导入持仓', cls:quality.missing?'warn':'good'},
+    {label:'待补数据', value:quality.missing+'条', sub:quality.missing?'先补基金净值或参照涨跌':(quality.carry?`${quality.carry} 条固收/理财沿用导入金额`:'当前无明显缺口'), cls:quality.missing?'warn':'good'}
+  ].map(c=>`<div class="focus-card ${c.cls}"><div class="label">${c.label}</div><div class="value">${c.value}</div><div class="sub">${c.sub}</div></div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  OWNER SUMMARY CARDS
+// ══════════════════════════════════════════════════════════════
+function renderOwnerRow(){
+  const el = document.getElementById('ownerRow');
+  if(!el) return;
+  const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  const totA = S.rows.filter(r=>r.owner==='责任人 A').reduce((s,r)=>s+getRowValue(r),0);
+  const totB = S.rows.filter(r=>r.owner==='责任人 B').reduce((s,r)=>s+getRowValue(r),0);
+  el.innerHTML = [
+    {name:'责任人 A', amt:totA, pct:tot?totA/tot*100:0},
+    {name:'责任人 B', amt:totB, pct:tot?totB/tot*100:0},
+  ].map(o=>`<div class="owner-card">
+    <div class="name">${o.name}</div>
+    <div class="amount">${fmt(o.amt)}</div>
+    <div class="pct">占总资产 ${fmtPct(o.pct)}</div>
+  </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REBALANCE
+// ══════════════════════════════════════════════════════════════
+function renderRebalance(elId, rows, targetKey){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const targets = S.targets[targetKey];
+  const tot = rows.reduce((s,r)=>s+getRowValue(r),0);
+  const tsum = Object.values(targets).reduce((a,b)=>a+b,0);
+  const scale = tsum>0 ? 100/tsum : 0;
+  el.innerHTML = '<div class="reb-grid">'+CATS.map((cat,i)=>{
+    const actual = rows.filter(r=>normalizeCategory(r.cat)===cat).reduce((s,r)=>s+getRowValue(r),0);
+    const actPct = tot?actual/tot*100:0;
+    const tgt    = (targets[cat]||0)*scale;
+    const diff   = actPct - tgt;
+    const amount = tot*(diff/100);
+    let suggestTxt='', suggestCls='';
+    if(Math.abs(diff)<2){ suggestTxt='正常'; suggestCls='ok'; }
+    else if(diff>0){ suggestTxt=`↓ 减少 ${fmt(Math.abs(amount))} (${diff.toFixed(1)}%)`; suggestCls='over'; }
+    else{ suggestTxt=`↑ 增加 ${fmt(Math.abs(amount))} (${Math.abs(diff).toFixed(1)}%)`; suggestCls='under'; }
+    const barW = Math.min(actPct/Math.max(tgt,1)*100,160);
+    return `<div class="reb-card">
+      <div class="cat-name" style="color:${CAT_COLORS[i]}">${cat}</div>
+      <div class="prog-wrap"><div class="prog-bar" style="width:${Math.min(actPct,100)}%;background:${CAT_COLORS[i]}"></div></div>
+      <div class="numbers"><span>当前 ${actPct.toFixed(1)}%</span><span>目标 ${tgt.toFixed(1)}%</span></div>
+      <div class="suggest ${suggestCls}">${suggestTxt}</div>
+    </div>`;
+  }).join('')+'</div>';
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TARGET SETTINGS
+// ══════════════════════════════════════════════════════════════
+function renderSliders(){
+  renderPresetGrid();
+  ['All','A','B'].forEach(scope=>{
+    const el = document.getElementById('sliders'+scope);
+    if(!el || el.children.length>0) return; // only build once
+    const targetKey = scope==='All'?'all':scope;
+    el.innerHTML = CATS.map(cat=>`
+      <div class="target-row">
+        <label>${cat}</label>
+        <input type="number" min="0" max="100" step="1" value="${S.targets[targetKey][cat]||0}" data-scope="${targetKey}" data-cat="${cat}" oninput="onSlider(this)">
+        <span class="unit">%</span>
+      </div>`).join('');
+    updateTargetSum(scope);
+  });
+}
+function onSlider(el){
+  const sc = el.dataset.scope, cat = el.dataset.cat;
+  S.targets[sc][cat] = Math.max(0, parseFloat(el.value)||0);
+  updateTargetSum(sc==='all'?'All':sc);
+  save();
+  renderAll(true);
+}
+function updateTargetSum(scope){
+  const targetKey = scope==='All'?'all':scope;
+  const sum = Object.values(S.targets[targetKey]).reduce((a,b)=>a+b,0);
+  const el = document.getElementById('targetSum'+scope);
+  if(!el) return;
+  el.textContent = Math.abs(sum-100)<0.5 ? '合计：100%' : '合计：'+sum+'%，已按权重归一化计算';
+  el.className = Math.abs(sum-100)<0.5?'sum-ok':'sum-err';
+}
+function renderPresetGrid(){
+  const el = document.getElementById('presetGrid');
+  if(!el || el.children.length>0) return;
+  el.innerHTML = ALLOCATION_PRESETS.map((p,i)=>`
+    <button class="preset-btn" onclick="applyPreset(${i})">
+      <b>${p.name}</b><span>${p.desc}</span><span class="ratios">${presetRatioText(p.values)}</span>
+    </button>`).join('');
+}
+function presetRatioText(values){
+  const shortNames = {'现金/存款':'现金','固收/理财':'固收','基金/ETF':'基金','股票':'股票','加密/另类':'另类','其他':'其他'};
+  return CATS.filter(cat=>values[cat]>0).map(cat=>`${shortNames[cat]} ${values[cat]}%`).join(' / ');
+}
+function applyPreset(idx){
+  const preset = ALLOCATION_PRESETS[idx];
+  if(!preset) return;
+  ['all','A','B'].forEach(scope=>{
+    S.targets[scope] = Object.assign({}, preset.values);
+  });
+  ['All','A','B'].forEach(scope=>{
+    const el = document.getElementById('sliders'+scope);
+    if(el) el.innerHTML='';
+  });
+  save();
+  renderAll();
+  toast('已应用配置参考：'+preset.name);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER ALL
+// ══════════════════════════════════════════════════════════════
+function renderAll(light=false){
+  const rowsA = S.rows.filter(r=>r.owner==='责任人 A');
+  const rowsB = S.rows.filter(r=>r.owner==='责任人 B');
+
+  renderSnapshotInfo();
+  renderKPI('kpiRow',  S.rows, '合并');
+  renderKPI('kpiRowA', rowsA,  '责任人 A');
+  renderKPI('kpiRowB', rowsB,  '责任人 B');
+  renderOwnerRow();
+  renderFocusPanel();
+
+  renderTable('all');
+  renderTable('A');
+  renderTable('B');
+
+  // Charts
+  const d  = buildChartData(S.rows);
+  const dA = buildChartData(rowsA);
+  const dB = buildChartData(rowsB);
+  const totA = rowsA.reduce((s,r)=>s+getRowValue(r),0);
+  const totB = rowsB.reduce((s,r)=>s+getRowValue(r),0);
+
+  makeOrUpdateChart('chartAlloc', d.labels, d.data, CAT_COLORS);
+  makeOrUpdateChart('chartAllocA', dA.labels, dA.data, CAT_COLORS);
+  makeOrUpdateChart('chartAllocB', dB.labels, dB.data, CAT_COLORS);
+  makeOrUpdateChart('chartOwner', ['责任人 A','责任人 B'], [totA,totB], ['#2563eb','#f59e0b']);
+  renderAllocationBars('allocBars', S.rows);
+  renderAllocationBars('allocBarsA', rowsA);
+  renderAllocationBars('allocBarsB', rowsB);
+  renderOwnerShareBars();
+  renderExposureImpact();
+  const actionsEl = document.getElementById('actionItems');
+  if(actionsEl) actionsEl.innerHTML = renderActionItems();
+
+  renderRebalance('rebAll', S.rows, 'all');
+  renderRebalance('rebA',   rowsA,  'A');
+  renderRebalance('rebB',   rowsB,  'B');
+  renderValuationQualitySummary();
+  renderValuationIssues();
+  renderMarketExposureList();
+  renderValuationGrid();
+
+  if(!light){
+    renderSliders();
+    renderWatchCards();
+    renderIndexCards();
+    // notes + alert settings
+    document.getElementById('notesA').value = S.notesA||'';
+    document.getElementById('notesB').value = S.notesB||'';
+    document.getElementById('alertDown').value = S.alertDown||5;
+    document.getElementById('alertUp').value   = S.alertUp||10;
+  }
+  checkAlert();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SNAPSHOT & ALERT
+// ══════════════════════════════════════════════════════════════
+function saveSnap(){
+  const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  S.snapshot = {total:tot, ts:new Date().toISOString()};
+  save(); renderAll(); toast('快照已确认：'+fmt(tot));
+}
+function checkAlert(){
+  if(!S.snapshot || !S.snapshot.total) return;
+  const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  const diff = (tot - S.snapshot.total)/S.snapshot.total*100;
+  const banner = document.getElementById('alertBanner');
+  const txt    = document.getElementById('alertTxt');
+  if(diff<= -(S.alertDown||5)){
+    banner.style.display='block'; banner.style.background='#ff4d4f';
+    txt.textContent=`总资产较快照下跌 ${Math.abs(diff).toFixed(2)}%，当前 ${fmt(tot)}，快照 ${fmt(S.snapshot.total)}`;
+  } else if(diff>=(S.alertUp||10)){
+    banner.style.display='block'; banner.style.background='#16a34a';
+    txt.textContent=`总资产较快照上涨 ${diff.toFixed(2)}%，当前 ${fmt(tot)}，快照 ${fmt(S.snapshot.total)}`;
+  } else {
+    banner.style.display='none';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ADD ROW
+// ══════════════════════════════════════════════════════════════
+function addRow(owner){
+  const row = {id:S.nextId++, owner:owner?'责任人 '+owner:'责任人 A', name:'', cat:'基金/ETF', amount:'', code:'', shares:'', cost:'', note:'', extra:{}};
+  S.rows.push(row);
+  save();
+  renderAll();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CLEAR ALL
+// ══════════════════════════════════════════════════════════════
+function clearAll(){
+  if(!confirm('确认清空所有资产数据？（此操作不可撤销）')) return;
+  S.rows=[];S.extraFields=[];S.nextId=1;S.snapshot=null;
+  save(); renderAll();
+  toast('数据已清空');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  EXPORT
+// ══════════════════════════════════════════════════════════════
+function exportJSON(){
+  const blob = new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'fund_backup_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  IMPORT
+// ══════════════════════════════════════════════════════════════
+document.getElementById('fileInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  e.target.value=''; // reset so same file can re-import
+  const ext = file.name.split('.').pop().toLowerCase();
+  if(ext==='json'){
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      try{
+        S=Object.assign(DEF_STATE(),JSON.parse(ev.target.result));
+        save(); renderAll(); toast('JSON 导入成功');
+      }catch(err){ alert('JSON 解析失败：'+err); }
+    };
+    reader.readAsText(file);
+  } else if(ext==='xlsx'||ext==='xls'){
+    if(typeof XLSX === 'undefined'){
+      alert('Excel解析库(SheetJS)尚未加载完毕或因网络原因加载失败。\n\n请稍等数秒重试，或直接将您的 Excel 文件另存为 .csv 格式后导入。');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev=>{ parseXlsx(ev.target.result); };
+    reader.readAsArrayBuffer(file);
+  } else if(ext==='csv'){
+    const reader = new FileReader();
+    reader.onload = ev=>{ parseCsv(ev.target.result); };
+    reader.readAsText(file, 'utf-8');
+  } else {
+    alert('不支持的文件格式！请导入 .json, .xlsx, .xls 或 .csv 文件');
+  }
+});
+
+function processImportData(headers, bodyRows){
+    const colMap = headers.map(h=>({header:h, ...matchCol(h)}));
+    const coreFields = new Set(colMap.filter(c=>c.type==='core').map(c=>c.field));
+    const missingCore = ['owner','name','cat','amount'].filter(f=>!coreFields.has(f));
+
+    const mapList = document.getElementById('fieldMapList');
+    mapList.innerHTML = colMap.map(c=>{      let tag='', tagClass='';
+      if(c.type==='core'){ tag=`固定核心 → ${c.field}`; tagClass='tag-core'; }
+      else if(c.type==='opt'){ tag=`可选列 → ${c.field}`; tagClass='tag-opt'; }
+      else { tag='自定义列 (保留)'; tagClass='tag-extra'; }
+      return `<div class="field-map-row">
+        <span class="fmr-excel">"${c.header}"</span>
+        <span class="fmr-arrow">→</span>
+        <span class="fmr-tag ${tagClass}">${tag}</span>
+      </div>`;
+    }).join('');
+
+    if(missingCore.length>0){      mapList.innerHTML += `<div style="margin-top:10px;background:#fff2f0;color:#cf1322;padding:10px;border-radius:8px;font-size:13px">
+        以下固定核心列未能匹配，请确认 Excel 表头：<b>${missingCore.join('、')}</b>
+      </div>`;
+    }
+
+    pendingRows = bodyRows;
+    pendingMap  = colMap;
+    pendingExtra = colMap.filter(c=>c.type==='extra').map(c=>({key:c.header.replace(/[^\w一-龥]/g,'_'), label:c.header}));
+
+    document.getElementById('importModal').classList.add('open');
+  }
+
+  function parseXlsx(ab){
+    const wb = XLSX.read(ab,{type:'arraybuffer'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    const table = getImportTable(data||[]);
+    if(!table||table.bodyRows.length===0){ alert('Excel 无有效数据或未找到表头'); return; }
+    processImportData(table.headers, table.bodyRows);
+  }
+
+  function parseCsv(text){
+    const lines = [];
+    let row = [''];
+    let inQuotes = false;
+    for(let i=0; i<text.length; i++){
+      const char = text[i];
+      const nextChar = text[i+1];
+      if(char === '"'){
+        if(inQuotes && nextChar === '"'){
+          row[row.length-1] += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if(char === ',' && !inQuotes){
+        row.push('');
+      } else if((char === '\r' || char === '\n') && !inQuotes){
+        if(char === '\r' && nextChar === '\n') i++;
+        lines.push(row);
+        row = [''];
+      } else {
+        row[row.length-1] += char;
+      }
+    }
+    if(row.length > 1 || row[0] !== '') lines.push(row);
+    
+    const table = getImportTable(lines);
+    if(!table||table.bodyRows.length===0){ alert('CSV 无有效数据或未找到表头'); return; }
+    processImportData(table.headers, table.bodyRows);
+  }
+
+function cancelImport(){
+  document.getElementById('importModal').classList.remove('open');
+  pendingRows=[]; pendingMap=[]; pendingExtra=[];
+}
+
+function confirmImport(){
+  document.getElementById('importModal').classList.remove('open');
+
+  // Merge extra fields (avoid duplicates by label)
+  const existingLabels = new Set(S.extraFields.map(e=>e.label));
+  pendingExtra.forEach(ef=>{ if(!existingLabels.has(ef.label)){ S.extraFields.push(ef); existingLabels.add(ef.label); } });
+
+  let count=0;
+  pendingRows.forEach(row=>{
+    const obj = {id:S.nextId++, owner:'责任人 A', name:'', cat:'其他', amount:0, code:'', shares:'', cost:'', nav:'', benchmark:'', note:'', extra:{}};
+    pendingMap.forEach((cm,ci)=>{
+      const val = row[ci]!==undefined?String(row[ci]).trim():'';
+      if(!val) return;
+      if(cm.type==='core'){
+        if(cm.field==='cat'){
+          obj.cat = normalizeCategory(val);
+        } else if(cm.field==='amount'){
+          obj.amount = parseMoney(val);
+        } else {
+          obj[cm.field] = val;
+        }
+      } else if(cm.type==='opt'){
+        if(cm.field==='shares'||cm.field==='cost'||cm.field==='nav') obj[cm.field]=parseMoney(val)||'';
+        else obj[cm.field]=val;
+      } else {
+        // extra
+        const key = cm.header.replace(/[^\w\u4e00-\u9fa5]/g,'_');
+        obj.extra[key] = val;
+      }
+    });
+    // normalize owner
+    if(obj.owner){
+      if(/A/i.test(obj.owner)) obj.owner='责任人 A';
+      else if(/B/i.test(obj.owner)) obj.owner='责任人 B';
+      else obj.owner='责任人 A';
+    }
+    obj.cat = normalizeCategory(obj.cat);
+    obj.benchmark = inferBenchmark(obj);
+    if(obj.name||obj.amount){ S.rows.push(obj); count++; }
+  });
+
+  save(); renderAll();
+  toast(`成功导入 ${count} 条资产记录`);
+  pendingRows=[]; pendingMap=[]; pendingExtra=[];
+
+  // Auto-add watch codes from imported rows
+  S.rows.forEach(r=>{
+    const code = String(r.code||'').trim().toLowerCase();
+    if(isRealtimeCode(code)&&!S.watchlist.includes(code)) S.watchlist.push(code);
+  });
+  save();
+  fetchMarket();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MARKET DATA (Tencent JSONP)
+// ══════════════════════════════════════════════════════════════
+const INDEX_CODES = ['sh000001','sz399001','sh000300','sz399006','sh000016','sh000688'];
+const INDEX_NAMES = {'sh000001':'上证指数','sz399001':'深证成指','sh000300':'沪深300','sz399006':'创业板','sh000016':'上证50','sh000688':'科创50'};
+
+function addWatch(){
+  const input = document.getElementById('mktCodeInput');
+  const code = input.value.trim().toLowerCase();
+  if(!code){ toast('请输入行情代码'); return; }
+  if(!isRealtimeCode(code)){ toast('请输入 sh/sz 开头的交易所代码；公募基金代码请通过估值缓存导入'); return; }
+  if(S.watchlist.includes(code)){ toast('已在自选中'); return; }
+  S.watchlist.push(code);
+  input.value='';
+  save(); renderWatchCards(); fetchMarket();
+}
+document.getElementById('mktCodeInput').addEventListener('keydown',e=>{ if(e.key==='Enter') addWatch(); });
+
+document.getElementById('quoteInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  e.target.value='';
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try{
+      applyQuoteCache(JSON.parse(String(ev.target.result).replace(/^\uFEFF/,'').trim()));
+    }catch(err){
+      alert('估值缓存 JSON 解析失败：'+err.message);
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+});
+
+function applyQuoteCache(data, opts={}){
+  const next = {asOf:data.asOf||data.date||new Date().toISOString().slice(0,10), funds:{}, benchmarks:{}, securities:{}};
+  Object.entries(data.funds||{}).forEach(([k,v])=>next.funds[String(k).trim().toLowerCase()] = v);
+  Object.entries(data.benchmarks||{}).forEach(([k,v])=>next.benchmarks[k] = v);
+  Object.entries(data.securities||{}).forEach(([k,v])=>next.securities[String(k).trim().toLowerCase()] = v);
+  S.quoteCache = next;
+  save();
+  renderAll();
+  if(!opts.silent) toast('估值缓存已导入');
+}
+
+async function loadRemoteQuoteCache(){
+  if(location.protocol==='file:') return;
+  try{
+    const res = await fetch(REMOTE_QUOTE_CACHE_URL+'?t='+Date.now(), {cache:'no-store'});
+    if(!res.ok) return;
+    const data = await res.json();
+    applyQuoteCache(data, {silent:true});
+    const ts = document.getElementById('mktTs');
+    if(ts) ts.textContent = '每日估值缓存 '+(S.quoteCache.asOf||'已同步');
+  }catch(e){
+    const ts = document.getElementById('mktTs');
+    if(ts) ts.textContent = '每日估值缓存未获取，可手动导入';
+  }
+}
+
+function downloadQuoteTemplate(){
+  const template = {
+    asOf: new Date().toISOString().slice(0,10),
+    funds: {
+      "022983": {"name":"华夏沪深300ETF联接Y", "nav":1.8734, "asOf":"2026-07-06"},
+      "022982": {"name":"工银中证A500ETF联接Y", "nav":1.3777, "asOf":"2026-07-06"}
+    },
+    benchmarks: {
+      "沪深300": {"chgPct":0.35, "asOf":"实时或当日估算"},
+      "中证A500": {"chgPct":0.42, "asOf":"实时或当日估算"},
+      "科创50": {"chgPct":-0.80, "asOf":"实时或当日估算"}
+    },
+    securities: {
+      "sh510300": {"name":"沪深300ETF", "price":4.12, "chgPct":0.35, "asOf":"实时行情"}
+    }
+  };
+  const blob = new Blob([JSON.stringify(template,null,2)],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'quotes_cache_template.json';
+  a.click();
+}
+
+function renderValuationGrid(){
+  const el = document.getElementById('valuationGrid');
+  if(!el) return;
+  if(S.rows.length===0){
+    el.innerHTML = '<div style="padding:14px;color:#aaa;font-size:13px">暂无资产，导入持仓后显示参照标的汇总</div>';
+    return;
+  }
+  const groups = buildExposureGroups();
+  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
+  const needs = S.rows.filter(r=>['warn','bad'].includes(getValuation(r).cls)).slice(0,8);
+  el.innerHTML = `<table><thead><tr>
+    <th>参照标的/类别</th><th>条目</th><th>责任人</th><th>同步金额</th><th>占比</th><th>较导入</th><th>估值状态</th>
+  </tr></thead><tbody>${groups.map(g=>{
+    const diff = g.value-g.base;
+    const cls = diff>0?'rise':diff<0?'fall':'flat';
+    const pct = g.base ? diff/g.base*100 : 0;
+    const statuses = Object.entries(g.statuses).map(([k,v])=>`${k} ${v}`).join(' / ');
+    return `<tr>
+      <td>${escHtml(g.name)}</td>
+      <td>${g.count}条</td>
+      <td>${escHtml([...g.owners].join('、'))}</td>
+      <td class="num">${fmt(g.value)}</td>
+      <td class="num">${totalVal?(g.value/totalVal*100).toFixed(1):'0.0'}%</td>
+      <td class="num ${cls}">${Math.abs(diff)<0.01?'—':fmtSigned(diff)+' / '+(pct>=0?'+':'')+pct.toFixed(2)+'%'}</td>
+      <td><span class="status-pill ${g.missing?'warn':'ok'}">${escHtml(statuses)}</span></td>
+    </tr>`;
+  }).join('')}</tbody></table>`+
+  (needs.length ? `<div style="padding:12px 14px;border-top:1px solid #f1f5f9;font-size:12px;color:#666">
+    <b style="color:#b45309">待补估值依据：</b>
+    ${needs.map(r=>`${escHtml(r.name||r.code||'未命名资产')}（${getValuation(r).status}）`).join('；')}
+    ${S.rows.filter(r=>['warn','bad'].includes(getValuation(r).cls)).length>needs.length?'；…':''}
+  </div>` : '');
+}
+
+function renderWatchCards(){
+  const el = document.getElementById('mktGrid');
+  if(!el) return;
+  if(S.watchlist.length===0){ el.innerHTML='<span style="color:#aaa;font-size:13px">暂无自选，输入代码添加</span>'; return; }
+  el.innerHTML = S.watchlist.map(code=>{
+    const md = mktData[code];
+    const name = md?md.name:code;
+    const price = md?md.price:'未获取';
+    const chg = md?md.chg:0;
+    const cls = chg>0?'rise':chg<0?'fall':'flat';
+    const chgStr = md?(chg>=0?'+':'')+chg+'%':'刷新后显示';
+    return `<div class="mkt-card">
+      <div class="mname">${name}</div>
+      <div class="mprice ${md?cls:'muted'}">${price}</div>
+      <div class="mchg ${cls}">${chgStr}</div>
+      <button class="mkt-card-del" data-code="${code}" title="移除">✕</button>
+    </div>`;
+  }).join('');
+  // delegation
+  el.querySelectorAll('.mkt-card-del').forEach(btn=>{
+    btn.onclick=()=>{ S.watchlist=S.watchlist.filter(c=>c!==btn.dataset.code); save(); renderWatchCards(); };
+  });
+}
+
+function renderIndexCards(){
+  const el = document.getElementById('mktIndexGrid');
+  if(!el) return;
+  el.innerHTML = INDEX_CODES.map(code=>{
+    const md = mktData[code];
+    const name = INDEX_NAMES[code]||code;
+    const price = md?md.price:'未获取';
+    const chg = md?md.chg:0;
+    const cls = chg>0?'rise':chg<0?'fall':'flat';
+    const chgStr = md?(chg>=0?'+':'')+chg+'%':'刷新后显示';
+    return `<div class="mkt-card">
+      <div class="mname">${name}</div>
+      <div class="mprice ${md?cls:'muted'}">${price}</div>
+      <div class="mchg ${cls}">${chgStr}</div>
+    </div>`;
+  }).join('');
+}
+
+function fetchMarket(){
+  const allCodes = getRealtimeCodes();
+  if(!allCodes.length) return;
+  const codes = allCodes.join(',');
+  const id = 'mkt_script_'+Date.now();
+  const old = document.getElementById('mkt_script');
+  if(old) old.remove();
+  // cleanup old v_ vars
+  allCodes.forEach(c=>{ try{ delete window['v_'+c]; }catch(e){} });
+  const s = document.createElement('script');
+  s.id = 'mkt_script';
+  s.src = `https://qt.gtimg.cn/q=${codes}&_=${Date.now()}`;
+  s.onload = ()=>{
+    allCodes.forEach(code=>{
+      const varName = 'v_'+code;
+      const raw = window[varName];
+      if(raw){
+        const parts = raw.split('~');
+        mktData[code] = {
+          name: parts[1]||code,
+          price: parseFloat(parts[3])||0,
+          chg: parseFloat(parts[32])||0
+        };
+      }
+    });
+    renderWatchCards();
+    renderIndexCards();
+    renderValuationGrid();
+    renderTable('all');
+    renderTable('A');
+    renderTable('B');
+    const ts = document.getElementById('mktTs');
+    if(ts) ts.textContent = '更新于 '+new Date().toLocaleTimeString('zh-CN');
+  };
+  s.onerror = ()=>{
+    const active = document.querySelector('.tab-pane.active');
+    if(active && active.id==='pane-market') toast('行情请求失败，请检查网络');
+    const ts = document.getElementById('mktTs');
+    if(ts) ts.textContent = '行情未获取，估值缓存仍可使用';
+  };
+  document.head.appendChild(s);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════════════════════
+function toast(msg,dur=2500){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.style.display='block';
+  clearTimeout(toast._t);
+  toast._t=setTimeout(()=>el.style.display='none',dur);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════
+load();
+renderAll();
+loadRemoteQuoteCache();
+// Auto-fetch market on load
+setTimeout(fetchMarket, 400);
+// Refresh every 5 min
+mktTimer = setInterval(fetchMarket, 300000);
+</script>
+</body>
+</html>
