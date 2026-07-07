@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>资产数据加密原型</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f4f6f8;color:#172033}
+header{background:#172033;color:white;padding:18px 22px}
+header h1{font-size:18px;margin:0 0 4px}
+header p{margin:0;color:#cbd5e1;font-size:13px}
+main{max-width:1100px;margin:0 auto;padding:20px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:white;border:1px solid #e5e7eb;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+h2{font-size:15px;margin:0 0 12px}
+p{font-size:13px;line-height:1.6;color:#64748b}
+label{display:block;font-size:13px;color:#334155;font-weight:700;margin:12px 0 6px}
+input[type=password],input[type=file],textarea{width:100%;border:1px solid #dbe3ef;border-radius:8px;padding:9px 10px;font:inherit;background:white}
+textarea{min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{border:0;border-radius:8px;background:#2563eb;color:white;padding:9px 13px;font:inherit;font-weight:700;cursor:pointer}
+button.secondary{background:#eef2f7;color:#334155}
+button.warn{background:#d97706}
+button:disabled{opacity:.45;cursor:not-allowed}
+.status{margin-top:12px;border-radius:8px;padding:10px 12px;font-size:13px;background:#f1f5f9;color:#475569;white-space:pre-wrap}
+.status.ok{background:#ecfdf5;color:#047857}.status.err{background:#fff1f2;color:#be123c}
+.meta{font-size:12px;color:#64748b;line-height:1.6}
+.danger{background:#fff7ed;border-color:#fed7aa}
+.danger strong{color:#b45309}
+@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>资产数据加密原型</h1>
+  <p>AES-GCM + PBKDF2，高迭代派生密钥；明文和密码只在本浏览器内处理。</p>
+</header>
+<main>
+  <div class="card danger">
+    <p><strong>用途：</strong>先验证“读取本地资产数据 → 加密导出 → 解密还原 → 写回面板”这条链路。不要在这里输入弱密码；公开仓库里的密文安全性完全取决于密码强度和 KDF 参数。</p>
+    <p class="meta">当前参数：PBKDF2-SHA-256，600000 次迭代，16 字节随机 salt，12 字节随机 IV，AES-GCM 256 位密钥。</p>
+  </div>
+
+  <div class="grid" style="margin-top:16px">
+    <section class="card">
+      <h2>1. 加密导出</h2>
+      <p>可以直接读取当前资金管理面板保存在本浏览器的 `fgov_v4` 数据，也可以手动粘贴 JSON。</p>
+      <label for="plainText">明文 JSON</label>
+      <textarea id="plainText" placeholder="点击“读取当前面板数据”，或粘贴 JSON"></textarea>
+      <label for="encryptPassword">主密码</label>
+      <input id="encryptPassword" type="password" autocomplete="new-password" placeholder="建议使用长密码或密码短语">
+      <div class="row">
+        <button class="secondary" id="loadLocalBtn">读取当前面板数据</button>
+        <button id="encryptBtn">加密并下载</button>
+        <button class="secondary" id="copyEncryptedBtn" disabled>复制密文</button>
+      </div>
+      <div id="encryptStatus" class="status">等待操作。</div>
+    </section>
+
+    <section class="card">
+      <h2>2. 解密还原</h2>
+      <p>选择 `portfolio.encrypted.json`，输入同一个主密码。密码错误或密文被篡改时，AES-GCM 会解密失败。</p>
+      <label for="encryptedFile">加密文件</label>
+      <input id="encryptedFile" type="file" accept=".json,application/json">
+      <label for="decryptPassword">主密码</label>
+      <input id="decryptPassword" type="password" autocomplete="current-password" placeholder="输入加密时使用的主密码">
+      <div class="row">
+        <button id="decryptBtn">解密预览</button>
+        <button class="warn" id="restoreBtn" disabled>写回本浏览器面板</button>
+        <button class="secondary" id="openDashboardBtn">打开主面板</button>
+      </div>
+      <label for="decryptedText">解密结果</label>
+      <textarea id="decryptedText" readonly placeholder="解密成功后显示 JSON"></textarea>
+      <div id="decryptStatus" class="status">等待加密文件。</div>
+    </section>
+  </div>
+</main>
+
+<script>
+const LS_KEY = 'fgov_v4';
+const ITERATIONS = 600000;
+let lastEncrypted = '';
+let lastDecrypted = '';
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+function bytesToBase64(bytes){
+  let bin = '';
+  new Uint8Array(bytes).forEach(b=>bin += String.fromCharCode(b));
+  return btoa(bin);
+}
+function base64ToBytes(base64){
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function setStatus(id, msg, cls=''){
+  const el = document.getElementById(id);
+  el.className = 'status'+(cls?' '+cls:'');
+  el.textContent = msg;
+}
+function assertStrongEnough(password){
+  if(password.length < 14) throw new Error('主密码至少建议 14 个字符；更推荐 5 个以上随机词组成的密码短语。');
+}
+async function deriveAesKey(password, salt){
+  const baseKey = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt, iterations:ITERATIONS, hash:'SHA-256'},
+    baseKey,
+    {name:'AES-GCM', length:256},
+    false,
+    ['encrypt','decrypt']
+  );
+}
+async function encryptJsonString(jsonText, password){
+  assertStrongEnough(password);
+  JSON.parse(jsonText);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAesKey(password, salt);
+  const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM', iv, tagLength:128}, key, enc.encode(jsonText));
+  return {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    payload: {type:'fund-manager-state', encoding:'utf-8+json'},
+    kdf: {name:'PBKDF2', hash:'SHA-256', iterations:ITERATIONS, salt:bytesToBase64(salt)},
+    cipher: {name:'AES-GCM', length:256, iv:bytesToBase64(iv), tagLength:128},
+    ciphertext: bytesToBase64(ciphertext)
+  };
+}
+async function decryptEnvelope(envelope, password){
+  const salt = base64ToBytes(envelope.kdf.salt);
+  const iv = base64ToBytes(envelope.cipher.iv);
+  const ciphertext = base64ToBytes(envelope.ciphertext);
+  const iterations = Number(envelope.kdf.iterations);
+  if(envelope.version !== 1) throw new Error('不支持的密文版本');
+  if(envelope.kdf.name !== 'PBKDF2' || envelope.kdf.hash !== 'SHA-256') throw new Error('不支持的 KDF 参数');
+  if(envelope.cipher.name !== 'AES-GCM') throw new Error('不支持的加密算法');
+  const baseKey = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt, iterations, hash:'SHA-256'},
+    baseKey,
+    {name:'AES-GCM', length:256},
+    false,
+    ['decrypt']
+  );
+  const plaintext = await crypto.subtle.decrypt({name:'AES-GCM', iv, tagLength:128}, key, ciphertext);
+  return dec.decode(plaintext);
+}
+function downloadText(filename, text){
+  const blob = new Blob([text], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+
+document.getElementById('loadLocalBtn').onclick = () => {
+  const raw = localStorage.getItem(LS_KEY);
+  if(!raw){
+    setStatus('encryptStatus','当前浏览器没有找到资金管理面板数据。请先打开主面板并导入资产数据。','err');
+    return;
+  }
+  document.getElementById('plainText').value = JSON.stringify(JSON.parse(raw), null, 2);
+  setStatus('encryptStatus','已读取当前浏览器的面板数据。','ok');
+};
+
+document.getElementById('encryptBtn').onclick = async () => {
+  try{
+    setStatus('encryptStatus','正在派生密钥并加密，可能需要几秒钟...');
+    const plain = document.getElementById('plainText').value.trim();
+    const password = document.getElementById('encryptPassword').value;
+    if(!plain) throw new Error('请先提供明文 JSON');
+    const envelope = await encryptJsonString(plain, password);
+    lastEncrypted = JSON.stringify(envelope, null, 2);
+    document.getElementById('copyEncryptedBtn').disabled = false;
+    downloadText('portfolio.encrypted.json', lastEncrypted);
+    setStatus('encryptStatus','加密成功，已下载 portfolio.encrypted.json。','ok');
+  }catch(err){
+    setStatus('encryptStatus', err.message || String(err), 'err');
+  }
+};
+
+document.getElementById('copyEncryptedBtn').onclick = async () => {
+  if(!lastEncrypted) return;
+  await navigator.clipboard.writeText(lastEncrypted);
+  setStatus('encryptStatus','密文已复制到剪贴板。','ok');
+};
+
+document.getElementById('decryptBtn').onclick = async () => {
+  try{
+    setStatus('decryptStatus','正在解密...');
+    const file = document.getElementById('encryptedFile').files[0];
+    const password = document.getElementById('decryptPassword').value;
+    if(!file) throw new Error('请选择加密文件');
+    const envelope = JSON.parse(await file.text());
+    lastDecrypted = await decryptEnvelope(envelope, password);
+    JSON.parse(lastDecrypted);
+    document.getElementById('decryptedText').value = JSON.stringify(JSON.parse(lastDecrypted), null, 2);
+    document.getElementById('restoreBtn').disabled = false;
+    setStatus('decryptStatus','解密成功。你可以先检查 JSON，再写回本浏览器面板。','ok');
+  }catch(err){
+    document.getElementById('restoreBtn').disabled = true;
+    setStatus('decryptStatus','解密失败：密码错误、文件损坏或参数不兼容。\\n'+(err.message || String(err)), 'err');
+  }
+};
+
+document.getElementById('restoreBtn').onclick = () => {
+  try{
+    if(!lastDecrypted) throw new Error('没有可写回的数据');
+    JSON.parse(lastDecrypted);
+    localStorage.setItem(LS_KEY, lastDecrypted);
+    setStatus('decryptStatus','已写回本浏览器。打开主面板即可看到资产数据。','ok');
+  }catch(err){
+    setStatus('decryptStatus', err.message || String(err), 'err');
+  }
+};
+
+document.getElementById('openDashboardBtn').onclick = () => {
+  location.href = './';
+};
+</script>
+</body>
+</html>

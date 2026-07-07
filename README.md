@@ -20,6 +20,12 @@
 https://huangjun722.github.io/fund-manager-dashboard/
 ```
 
+加密原型：
+
+```text
+https://huangjun722.github.io/fund-manager-dashboard/crypto-prototype.html
+```
+
 ## 自动更新
 
 GitHub Actions 会在交易日 18:30（北京时间）同步行情缓存并重新生成 `/docs`。
@@ -32,3 +38,13 @@ npm run sync:quotes
 npm run build
 ```
 
+## 加密原型
+
+`crypto-prototype.html` 用于验证资产数据加密导出和解密还原流程：
+
+- AES-GCM 256 位加密
+- PBKDF2-SHA-256，600000 次迭代
+- 每次加密使用随机 salt 和 IV
+- 明文和主密码只在浏览器本地处理
+
+加密文件可以命名为 `portfolio.encrypted.json`。不要提交明文资产数据。
