@@ -1,51 +1,51 @@
 {
   "asOf": "2026-07-07",
   "source": "tencent-qt.gtimg.cn",
-  "generatedAt": "2026-07-07T06:53:48.000Z",
+  "generatedAt": "2026-07-07T11:36:28.000Z",
   "funds": {},
   "benchmarks": {
     "沪深300": {
       "name": "沪深300",
-      "price": 4787.31,
-      "chgPct": -1.13,
+      "price": 4792.26,
+      "chgPct": -1.03,
       "asOf": "2026-07-07"
     },
     "科创50": {
       "name": "科创50",
-      "price": 1999.64,
-      "chgPct": 0.18,
+      "price": 2001.59,
+      "chgPct": 0.28,
       "asOf": "2026-07-07"
     },
     "创业板指": {
       "name": "创业板指",
-      "price": 3908.86,
-      "chgPct": -1.01,
+      "price": 3911.91,
+      "chgPct": -0.94,
       "asOf": "2026-07-07"
     },
     "上证50": {
       "name": "上证50",
-      "price": 2918.8,
-      "chgPct": -1.32,
+      "price": 2921.89,
+      "chgPct": -1.22,
       "asOf": "2026-07-07"
     },
     "上证指数": {
       "name": "上证指数",
-      "price": 3988.04,
-      "chgPct": -1.32,
+      "price": 3990.24,
+      "chgPct": -1.26,
       "asOf": "2026-07-07"
     },
     "深证成指": {
       "name": "深证成指",
-      "price": 15212.12,
-      "chgPct": -1.33,
+      "price": 15225.11,
+      "chgPct": -1.24,
       "asOf": "2026-07-07"
     }
   },
   "securities": {
     "sh510300": {
       "name": "沪深300ETF",
-      "price": 4.823,
-      "chgPct": -1.11,
+      "price": 4.826,
+      "chgPct": -1.05,
       "asOf": "2026-07-07"
     }
   }
