@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>家庭资金治理台 v4</title>
-<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js">
+<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
 // ═══ QUICK WINS: DATA & RESPONSIVE IMPROVEMENTS ══════════════════════
 let activeEditingRowId = null;
 
@@ -16,7 +17,7 @@ function downloadCSVTemplate() {
     ["责任人 B", "招商银行", "股票", "80000", "sh600036", "2500", "28", "32.1", "无", "高股息资产复核，资本充足率高", "收息红利股"],
     ["责任人 B", "某垃圾股B", "股票", "12000", "sh600000", "1000", "15", "12", "财务风险", "销售费用畸高且大股东质押过高，一票否决", "警惕雷区"]
   ];
-  const csvContent = "﻿" + [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+  const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -46,9 +47,9 @@ function loadMockDemoData() {
 }
 
 function openNoteEditModal(el) {
-  activeEditingRowId = parseInt(el.dataset.agentId);
-  document.getElementById('noteEditModalTitle').textContent = `编辑【${el.dataset.agentName || '未命名资产'}】的分析结论`;
-  document.getElementById('noteEditModalTextarea').value = el.dataset.agentNote || '';
+  activeEditingRowId = parseInt(el.dataset.rowId, 10);
+  document.getElementById('noteEditModalTitle').textContent = `编辑【${el.dataset.assetName || '未命名资产'}】的分析结论`;
+  document.getElementById('noteEditModalTextarea').value = el.dataset.analysisNote || '';
   document.getElementById('noteEditModal').classList.add('open');
 }
 
@@ -582,9 +583,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
       <span style="background:#f4f4f5;color:#52525b;padding:1px 6px;border-radius:4px;font-weight:700">灰色</span> = 自定义列
     </p>
     <div id="fieldMapList"></div>
-    <div style="margin-top:12px; display:flex; align-items:center; gap:6px; font-size:13px; color:#475569;">
-      <input type="checkbox" id="clearExistingOnImport" style="width:auto; cursor:pointer;">
-      <label for="clearExistingOnImport" style="cursor:pointer; user-select:none; font-weight:500;">导入时先清空现有数据 (全新覆盖)</label>
+    <div style="margin-top:12px;background:#f8fafc;color:#475569;padding:10px;border-radius:8px;font-size:13px;line-height:1.5">
+      本次导入校验通过后，将整体替换当前资产清单；如发现表头、责任人或金额错误，现有数据不会被改动。
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="cancelImport()">取消</button>
@@ -679,6 +679,20 @@ function getImportTable(data){
 }
 function parseMoney(val){
   return parseFloat(String(val).replace(/[,，¥￥\s]/g,''))||0;
+}
+function parseMoneyStrict(val){
+  const raw = String(val ?? '').trim();
+  if(!raw) return null;
+  const normalized = raw.replace(/[,，¥￥\s]/g,'');
+  if(!normalized) return null;
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : null;
+}
+function normalizeOwner(ownerStr){
+  const s = String(ownerStr ?? '').trim().replace(/\s+/g,'').toUpperCase();
+  if(s==='A' || s==='责任人A') return '责任人 A';
+  if(s==='B' || s==='责任人B') return '责任人 B';
+  return '';
 }
 
 const BENCHMARK_RULES = [
@@ -836,7 +850,7 @@ let S = DEF_STATE();
 let mktData = {};
 let mktTimer = null;
 let charts = {};
-let pendingRows = [], pendingExtra = [], pendingMap = [];
+let pendingRows = [], pendingExtra = [], pendingMap = [], pendingImportIssues = [];
 let pendingCryptoEnvelope = null;
 let cryptoModalMode = '';
 
@@ -846,6 +860,8 @@ function normalizeState(data){
   const next = Object.assign({}, defaults, input);
   next.rows = Array.isArray(next.rows) ? next.rows : [];
   next.rows.forEach(r => {
+    const owner = normalizeOwner(r.owner);
+    if (owner) r.owner = owner;
     if (!r.redline) r.redline = '无';
     if (!r.analysisNote) r.analysisNote = '';
   });
@@ -1157,14 +1173,6 @@ function renderTable(scope){
   if(!thead||!tbody) return;
 
   const cols = getColSpec();
-function normalizeOwner(ownerStr) {
-  if (!ownerStr) return '责任人 A';
-  const s = String(ownerStr).trim();
-  if (/责任人\s*A|A\s*$|^A$/i.test(s)) return '责任人 A';
-  if (/责任人\s*B|B\s*$|^B$/i.test(s)) return '责任人 B';
-  return '责任人 A';
-}
-
   const rows = scope==='all'? S.rows : S.rows.filter(r=>normalizeOwner(r.owner)===('责任人 '+scope));
 
   // ── Header ──
@@ -1195,10 +1203,10 @@ function normalizeOwner(ownerStr) {
       } else if(c.key==='_status'){
         html += `<span class="status-pill ${valuation.cls}">${valuation.status}</span>`;
       } else if(c.key==='owner'){
-        const normalizedOwner = normalizeOwner(row.owner);
+        const owner = normalizeOwner(row.owner);
         html += `<select data-id="${id}" data-f="owner">
-          <option ${normalizedOwner==='责任人 A'?'selected':''}>责任人 A</option>
-          <option ${normalizedOwner==='责任人 B'?'selected':''}>责任人 B</option>
+          <option ${owner==='责任人 A'?'selected':''}>责任人 A</option>
+          <option ${owner==='责任人 B'?'selected':''}>责任人 B</option>
         </select>`;
       } else if(c.key==='cat'){
         const currentCat = normalizeCategory(row.cat);
@@ -1216,9 +1224,7 @@ function normalizeOwner(ownerStr) {
         html += `<input data-id="${id}" data-f="extra:${ek}" value="${escHtml(val)}" placeholder="—">`;
       } else if (c.key === 'analysisNote') {
         const val = row[c.key] || '';
-        const escapedVal = escHtml(val);
-        const escapedName = String(row.name||'').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        html += `<div class="analysis-cell-click" data-agent-id="${id}" data-agent-name="${escapedName}" data-agent-note="${escapedVal}" onclick="openNoteEditModal(this)" style="cursor:pointer; min-height:30px; padding:6px; border:1px solid #cbd5e1; border-radius:4px; background:#f8fafc; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;" title="点击编辑分析结论">${escapedVal || '<span style="color:#94a3b8">点击录入分析结论...</span>'}</div>`;
+        html += `<div class="analysis-cell-click" data-row-id="${id}" data-asset-name="${escHtml(row.name||'')}" data-analysis-note="${escHtml(val)}" onclick="openNoteEditModal(this)" style="cursor:pointer; min-height:30px; padding:6px; border:1px solid #cbd5e1; border-radius:4px; background:#f8fafc; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;" title="点击编辑分析结论">${escHtml(val) || '<span style="color:#94a3b8">点击录入分析结论...</span>'}</div>`;
       } else {
         html += `<input data-id="${id}" data-f="${c.key}" value="${escHtml(row[c.key]||'')}" placeholder="—">`;
       }
@@ -1679,7 +1685,7 @@ function renderOwnerRow(){
   const el = document.getElementById('ownerRow');
   if(!el) return;
   const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  
+
   const totA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A').reduce((s,r)=>s+getRowValue(r),0);
   const totB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B').reduce((s,r)=>s+getRowValue(r),0);
   el.innerHTML = [
@@ -1869,7 +1875,7 @@ function checkAlert(){
 //  ADD ROW
 // ══════════════════════════════════════════════════════════════
 function addRow(owner){
-  const row = {id:S.nextId++, owner:owner?'责任人 '+owner:'责任人 A', name:'', cat:'基金/ETF', amount:'', code:'', shares:'', cost:'', nav:'', note:'', redline:'无', analysisNote:'', extra:{}};
+  const row = {id:S.nextId++, owner:owner==='B'?'责任人 B':'责任人 A', name:'', cat:'基金/ETF', amount:'', code:'', shares:'', cost:'', nav:'', note:'', redline:'无', analysisNote:'', extra:{}};
   S.rows.push(row);
   save();
   renderAll();
@@ -1934,6 +1940,7 @@ function processImportData(headers, bodyRows){
     const colMap = headers.map(h=>({header:h, ...matchCol(h)}));
     const coreFields = new Set(colMap.filter(c=>c.type==='core').map(c=>c.field));
     const missingCore = ['owner','name','cat','amount'].filter(f=>!coreFields.has(f));
+    pendingImportIssues = missingCore;
 
     const mapList = document.getElementById('fieldMapList');
     mapList.innerHTML = colMap.map(c=>{      let tag='', tagClass='';
@@ -2001,88 +2008,95 @@ function processImportData(headers, bodyRows){
 
 function cancelImport(){
   document.getElementById('importModal').classList.remove('open');
-  pendingRows=[]; pendingMap=[]; pendingExtra=[];
+  pendingRows=[]; pendingMap=[]; pendingExtra=[]; pendingImportIssues=[];
 }
 
 function confirmImport(){
-  document.getElementById('importModal').classList.remove('open');
-
-  // ── 处理"清空现有数据"复选框 ──
-  const clearExisting = document.getElementById('clearExistingOnImport');
-  if (clearExisting && clearExisting.checked) {
-    S.rows = [];
-    S.extraFields = [];
-    S.nextId = 1;
+  if(pendingImportIssues.length){
+    alert(`导入失败：缺少必要列 ${pendingImportIssues.join('、')}。现有数据未改动。`);
+    return;
   }
 
-  // Merge extra fields (avoid duplicates by label)
-  const existingLabels = new Set(S.extraFields.map(e=>e.label));
-  pendingExtra.forEach(ef=>{ if(!existingLabels.has(ef.label)){ S.extraFields.push(ef); existingLabels.add(ef.label); } });
+  const errors = [];
+  const importedRows = [];
+  const numericLabels = {shares:'持有数量/份额', cost:'买入成本', nav:'现在价格/净值'};
 
-  // ── 构建已有资产的去重索引 (所有者+资产名称) ──
-  const existingKeys = new Set(S.rows.map(r => `${String(r.owner||'').trim()}|||${String(r.name||'').trim()}`));
+  pendingRows.forEach((row,rowIndex)=>{
+    const lineNo = rowIndex + 1;
+    const rowErrorStart = errors.length;
+    const raw = {};
+    const obj = {id:importedRows.length + 1, owner:'', name:'', cat:'', amount:0, code:'', shares:'', cost:'', nav:'', benchmark:'', note:'', redline:'无', analysisNote:'', extra:{}};
 
-  let count=0, skipped=0;
-  pendingRows.forEach(row=>{
-    const obj = {id:S.nextId++, owner:'责任人 A', name:'', cat:'其他', amount:0, code:'', shares:'', cost:'', nav:'', benchmark:'', note:'', redline:'无', analysisNote:'', extra:{}};
     pendingMap.forEach((cm,ci)=>{
       const val = row[ci]!==undefined?String(row[ci]).trim():'';
+      if(cm.type==='core' || cm.type==='opt') raw[cm.field] = val;
       if(!val) return;
       if(cm.type==='core'){
-        if(cm.field==='cat'){
-          obj.cat = normalizeCategory(val);
-        } else if(cm.field==='amount'){
-          obj.amount = parseMoney(val);
-        } else {
-          obj[cm.field] = val;
-        }
+        if(cm.field==='cat') obj.cat = normalizeCategory(val);
+        else if(cm.field==='amount') obj.amount = parseMoneyStrict(val);
+        else obj[cm.field] = val;
       } else if(cm.type==='opt'){
-        if(cm.field==='shares'||cm.field==='cost'||cm.field==='nav') obj[cm.field]=parseMoney(val)||'';
-        else obj[cm.field]=val;
+        if(cm.field==='shares'||cm.field==='cost'||cm.field==='nav'){
+          obj[cm.field] = parseMoneyStrict(val);
+        } else {
+          obj[cm.field]=val;
+        }
       } else {
-        // extra
         const key = cm.header.replace(/[^\w\u4e00-\u9fa5]/g,'_');
         obj.extra[key] = val;
       }
     });
-    // normalize owner
-    if(obj.owner){
-      if(/A/i.test(obj.owner)) obj.owner='责任人 A';
-      else if(/B/i.test(obj.owner)) obj.owner='责任人 B';
-      else obj.owner='责任人 A';
-    } else {
-      obj.owner = '责任人 A';
-    }
-    obj.cat = normalizeCategory(obj.cat);
+
+    if(!Object.values(raw).some(v=>String(v||'').trim()) && !Object.values(obj.extra).some(Boolean)) return;
+
+    obj.owner = normalizeOwner(raw.owner);
+    if(!obj.owner) errors.push(`第 ${lineNo} 行：归属责任人必须是“责任人 A”或“责任人 B”`);
+    if(!String(raw.name||'').trim()) errors.push(`第 ${lineNo} 行：资产名称不能为空`);
+    if(!String(raw.cat||'').trim()) errors.push(`第 ${lineNo} 行：资产大类不能为空`);
+    if(!String(raw.amount||'').trim()) errors.push(`第 ${lineNo} 行：当前金额/余额不能为空`);
+    else if(obj.amount===null) errors.push(`第 ${lineNo} 行：当前金额/余额不是有效数字`);
+
+    ['shares','cost','nav'].forEach(field=>{
+      if(String(raw[field]||'').trim() && obj[field]===null){
+        errors.push(`第 ${lineNo} 行：${numericLabels[field]}不是有效数字`);
+      }
+    });
+
+    if(errors.length > rowErrorStart) return;
+    obj.name = String(raw.name).trim();
+    obj.cat = normalizeCategory(raw.cat);
+    ['shares','cost','nav'].forEach(field=>{ if(obj[field]===null) obj[field]=''; });
     obj.benchmark = inferBenchmark(obj);
-
-    // ── 跳过空行 ──
-    if(!obj.name && !obj.amount) return;
-
-    // ── 去重：同一所有者 + 同一资产名称只保留第一次导入 ──
-    const dedupKey = `${obj.owner}|||${obj.name}`;
-    if (existingKeys.has(dedupKey)) {
-      skipped++;
-      S.nextId--; // 回收未使用的 ID
-      return;
-    }
-    existingKeys.add(dedupKey);
-
-    S.rows.push(obj); count++;
+    importedRows.push(obj);
   });
 
-  save(); renderAll();
-  let msg = `成功导入 ${count} 条资产记录`;
-  if (skipped > 0) msg += `，跳过 ${skipped} 条重复`;
-  toast(msg);
-  pendingRows=[]; pendingMap=[]; pendingExtra=[];
+  if(errors.length){
+    alert(`导入失败，现有数据未改动：\n${errors.slice(0,12).join('\n')}${errors.length>12?`\n另有 ${errors.length-12} 个问题未显示`:''}`);
+    return;
+  }
+  if(!importedRows.length){
+    alert('导入失败：没有可导入的有效资产行。现有数据未改动。');
+    return;
+  }
 
-  // Auto-add watch codes from imported rows
-  S.rows.forEach(r=>{
+  document.getElementById('importModal').classList.remove('open');
+
+  const extraFields = S.extraFields.slice();
+  const existingLabels = new Set(extraFields.map(e=>e.label));
+  pendingExtra.forEach(ef=>{ if(!existingLabels.has(ef.label)){ extraFields.push(ef); existingLabels.add(ef.label); } });
+
+  S.extraFields = extraFields;
+  S.rows = importedRows;
+  S.nextId = importedRows.length + 1;
+  importedRows.forEach(r=>{
     const code = String(r.code||'').trim().toLowerCase();
     if(isRealtimeCode(code)&&!S.watchlist.includes(code)) S.watchlist.push(code);
   });
+
   save();
+  renderAll();
+  toast(`成功导入并替换 ${importedRows.length} 条资产记录`);
+  pendingRows=[]; pendingMap=[]; pendingExtra=[]; pendingImportIssues=[];
   fetchMarket();
 }
 
