@@ -4,7 +4,73 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>家庭资金治理台 v4</title>
-<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js">
+// ═══ QUICK WINS: DATA & RESPONSIVE IMPROVEMENTS ══════════════════════
+let activeEditingRowId = null;
+
+function downloadCSVTemplate() {
+  const headers = ["归属责任人", "资产名称", "资产大类", "当前金额", "行情代码", "持有数量", "买入成本", "单位净值", "何刚风险红线", "分析结论", "备注"];
+  const rows = [
+    ["责任人 A", "腾讯控股", "股票", "150000", "hk00700", "400", "320", "385.4", "无", "符合HALO商业模式，现金流强劲", "核心成长"],
+    ["责任人 A", "沪深300ETF", "基金/ETF", "250000", "sh510300", "62500", "3.8", "4.02", "无", "大盘宽基底层防守", "定投底仓"],
+    ["责任人 B", "招商银行", "股票", "80000", "sh600036", "2500", "28", "32.1", "无", "高股息资产复核，资本充足率高", "收息红利股"],
+    ["责任人 B", "某垃圾股B", "股票", "12000", "sh600000", "1000", "15", "12", "财务风险", "销售费用畸高且大股东质押过高，一票否决", "警惕雷区"]
+  ];
+  const csvContent = "﻿" + [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '家庭资金治理台_资产导入模板.csv';
+  a.click();
+  toast('标准 CSV 导入模板已下载');
+}
+
+function loadMockDemoData() {
+  const demoRows = [
+    { id: 1, owner: '责任人 A', name: '腾讯控股', cat: '股票', amount: 150000, code: 'hk00700', shares: 400, cost: 320, nav: 385.4, redline: '无', analysisNote: '符合HALO经典选股规则，行业壁垒深厚。', note: '核心成长底仓', extra: {} },
+    { id: 2, owner: '责任人 A', name: '华夏沪深300ETF联接Y', cat: '基金/ETF', amount: 250000, code: '022983', shares: 133448, cost: 1.81, nav: 1.8734, redline: '无', analysisNote: '宽基稳健型配置，提供底层流动性保护。', note: '长线底仓', extra: {} },
+    { id: 3, owner: '责任人 A', name: '长江电力', cat: '股票', amount: 95000, code: 'sh600900', shares: 3200, cost: 24.5, nav: 29.68, redline: '无', analysisNote: '高股息现金奶牛，公用事业防守典范。', note: '高股息防守', extra: {} },
+    { id: 4, owner: '责任人 A', name: '招商双债增强债券C', cat: '固收/理财', amount: 120000, code: '', shares: '', cost: '', nav: '', redline: '无', analysisNote: '固收补充资产，平摊波动。', note: '稳健固收', extra: {} },
+    { id: 5, owner: '责任人 B', name: '招商银行', cat: '股票', amount: 110000, code: 'sh600036', shares: 3400, cost: 28.5, nav: 32.35, redline: '无', analysisNote: '基本面稳固的高股息金融蓝筹。', note: '红利防守', extra: {} },
+    { id: 6, owner: '责任人 B', name: '某涉嫌造假问题股', cat: '股票', amount: 25000, code: 'sz000002', shares: 2000, cost: 15.2, nav: 12.5, redline: '财务风险', analysisNote: '销售费用极度反常，存贷双高，启动红线警报。', note: '问题持仓', extra: {} },
+    { id: 7, owner: '责任人 B', name: '纳斯达克100ETF', cat: '基金/ETF', amount: 160000, code: 'sz159941', shares: 51282, cost: 2.85, nav: 3.12, redline: '无', analysisNote: '全球科技龙头核心暴露，分散单一市场风险。', note: '全球配置', extra: {} },
+    { id: 8, owner: '责任人 B', name: '微信余额宝', cat: '现金/存款', amount: 150000, code: '', shares: '', cost: '', nav: '', redline: '无', analysisNote: '随时可动用的应急备用金。', note: '超强流动性', extra: {} },
+    { id: 9, owner: '责任人 B', name: '微众银行大额存单', cat: '现金/存款', amount: 200000, code: '', shares: '', cost: '', nav: '', redline: '无', analysisNote: '5年期锁定存单，锁死底层无风险利率。', note: '锁定收益', extra: {} }
+  ];
+  S.rows = demoRows;
+  S.nextId = 10;
+  save();
+  renderAll();
+  toast('已成功导入9条高度真实的模拟演示资产数据！');
+  setTimeout(fetchMarket, 400);
+}
+
+function openNoteEditModal(rowId, assetName, currentNote) {
+  activeEditingRowId = rowId;
+  document.getElementById('noteEditModalTitle').textContent = `编辑【${assetName || '未命名资产'}】的分析结论`;
+  document.getElementById('noteEditModalTextarea').value = currentNote || '';
+  document.getElementById('noteEditModal').classList.add('open');
+}
+
+function closeNoteEditModal() {
+  document.getElementById('noteEditModal').classList.remove('open');
+  activeEditingRowId = null;
+}
+
+function confirmNoteEditModal() {
+  if (activeEditingRowId !== null) {
+    const val = document.getElementById('noteEditModalTextarea').value;
+    const row = S.rows.find(r => r.id === activeEditingRowId);
+    if (row) {
+      row.analysisNote = val;
+      save();
+      renderAll(true);
+      toast('分析结论已成功保存');
+    }
+  }
+  closeNoteEditModal();
+}
+</script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -143,6 +209,12 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .status-pill.ok{background:#ecfdf5;color:#047857}
 .status-pill.est{background:#eff6ff;color:#1d4ed8}
 .status-pill.warn{background:#fff7e6;color:#b45309}
+.status-pill.risk { background: #fee2e2 !important; color: #991b1b !important; font-weight: bold; border: 1px solid #fca5a5; }
+.status-pill.adjust { background: #ffedd5 !important; color: #c2410c !important; }
+.status-pill.review { background: #dbeafe !important; color: #1e40af !important; }
+.status-pill.observe { background: #f0fdf4 !important; color: #166534 !important; }
+.hegang-tag { background: #fee2e2; color: #991b1b; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #fca5a5; }
+.focus-card.risk { background: #fee2e2 !important; border-color: #fca5a5 !important; color: #991b1b !important; }
 .status-pill.bad{background:#fff1f2;color:#be123c}
 .quote-note{font-size:12px;color:#888;margin-left:8px}
 /* ── Notes ── */
@@ -195,6 +267,106 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   .detail-disclosure summary,.secondary-details summary,.advanced-config summary{align-items:flex-start;gap:8px;flex-direction:column}
   .reb-grid{grid-template-columns:1fr}
 }
+
+/* SOP Guide Style */
+.sop-guide {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.sop-guide summary {
+  font-weight: 700;
+  color: #1e293b;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  font-size: 14px;
+}
+.sop-guide summary::-webkit-details-marker { color: #64748b; }
+.sop-guide-content {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #475569;
+}
+.sop-step {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #f1f5f9;
+}
+.sop-step h5 {
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sop-step h5 .badge {
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 99px;
+}
+
+/* Micro-modal for long text editing on mobile */
+.note-modal {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.note-modal.open { display: flex; }
+.note-modal-box {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 500px;
+  padding: 20px;
+  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
+  animation: modalEnter 0.2s ease-out;
+}
+@keyframes modalEnter {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.note-modal-header {
+  font-weight: 700;
+  font-size: 16px;
+  color: #0f172a;
+  margin-bottom: 12px;
+}
+.note-modal-textarea {
+  width: 100%;
+  height: 150px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+  resize: none;
+  outline: none;
+  margin-bottom: 16px;
+}
+.note-modal-textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.note-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 </style>
 </head>
 <body>
@@ -224,6 +396,29 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 
 <!-- ═══ OVERVIEW TAB ════════════════════════════════════════════════════ -->
 <div id="pane-overview" class="tab-pane active">
+  <!-- SOP / Usage Guide Foldout -->
+  <details class="sop-guide" open>
+    <summary>💡 CIO 资金治理台 · 快速使用指南 (SOP) <span style="font-size:12px; font-weight:normal; color:#64748b; margin-left:8px;">(点击可收起/展开)</span></summary>
+    <div class="sop-guide-content">
+      <div class="sop-step">
+        <h5><span class="badge">1</span> 准备或导入资产数据</h5>
+        <p>支持拖入或导入券商、Excel 导出的资产表。也可以直接点击下方按钮一键填充<b>「模拟演示数据」</b>进行功能探索。</p>
+        <div style="margin-top:10px; display:flex; gap:6px;">
+          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="loadMockDemoData()">⚡ 填充演示数据</button>
+          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="downloadCSVTemplate()">📥 下载标准CSV模板</button>
+        </div>
+      </div>
+      <div class="sop-step">
+        <h5><span class="badge">2</span> 进行方法论分析与标记</h5>
+        <p>展开<b>「资产明细与编辑」</b>，点击个股或基金，双击或点击「分析结论」在弹窗中录入基本面逻辑，并在「何刚风险红线」一栏对潜在风险（如治理风险、财务风险等）进行一票否决标记。</p>
+      </div>
+      <div class="sop-step">
+        <h5><span class="badge">3</span> 核对健康度并确认快照</h5>
+        <p>通过<b>「待处理事项」</b>优先级列表、<b>「再平衡建议」</b>和<b>「估值监控」</b>发现红线和配置偏离。调整妥当后点击右上角<b>「确认快照」</b>建立日常比较基准，监控日内波动。</p>
+      </div>
+    </div>
+  </details>
+
   <div class="kpi-row" id="kpiRow"></div>
   <div class="owner-row" id="ownerRow"></div>
   <div id="focusPanel" class="focus-grid"></div>
@@ -495,6 +690,18 @@ const BENCHMARK_RULES = [
   {name:'黄金', code:'', re:/黄金|gold/i}
 ];
 const ALLOCATION_PRESETS = [
+  {
+    name: '何刚·稳健参考',
+    desc: '何刚2024稳健型：30-50%货币/债券防守，50-70%高股息/混合成长，年化目标2%+',
+    values: {
+      '现金/存款': 40,
+      '固收/理财': 10,
+      '基金/ETF': 20,
+      '股票': 20,
+      '加密/另类': 10,
+      '其他': 0
+    }
+  },
   {name:'稳健型', desc:'固收为主，权益适中', values:{'现金/存款':10,'固收/理财':50,'基金/ETF':30,'股票':5,'加密/另类':5,'其他':0}},
   {name:'均衡型', desc:'股债均衡，长期默认', values:{'现金/存款':5,'固收/理财':35,'基金/ETF':45,'股票':10,'加密/另类':5,'其他':0}},
   {name:'成长型', desc:'权益占比更高', values:{'现金/存款':5,'固收/理财':15,'基金/ETF':55,'股票':20,'加密/另类':5,'其他':0}},
@@ -634,6 +841,10 @@ function normalizeState(data){
   const input = data || {};
   const next = Object.assign({}, defaults, input);
   next.rows = Array.isArray(next.rows) ? next.rows : [];
+  next.rows.forEach(r => {
+    if (!r.redline) r.redline = '无';
+    if (!r.analysisNote) r.analysisNote = '';
+  });
   next.extraFields = Array.isArray(next.extraFields) ? next.extraFields : [];
   next.watchlist = Array.isArray(next.watchlist) ? next.watchlist : [];
   const inputTargets = input.targets || {};
@@ -922,6 +1133,8 @@ function getColSpec(){
   ];
   const noteCols = [
     {key:'note',   label:'备注',    type:'opt', w:'120px'},
+    {key:'redline', label:'何刚风险红线', type:'opt', w:'150px'},
+    {key:'analysisNote', label:'分析结论', type:'opt', w:'200px'},
   ];
   const extraCols = S.extraFields.map(ef=>({
     key: 'extra:'+ef.key, label: ef.label, type:'extra', w:'120px'
@@ -988,6 +1201,10 @@ function renderTable(scope){
         const ek = c.key.slice(6);
         const val = (row.extra&&row.extra[ek])||'';
         html += `<input data-id="${id}" data-f="extra:${ek}" value="${escHtml(val)}" placeholder="—">`;
+      } else if (c.key === 'analysisNote') {
+        const val = row[c.key] || '';
+        const escapedVal = escHtml(val).replace(/`/g, '\`').replace(/'/g, "'");
+        html += `<div class="analysis-cell-click" onclick="openNoteEditModal(${id}, '${String(row.name).replace(/'/g, "'")}', \`${escapedVal}\`)" style="cursor:pointer; min-height:30px; padding:6px; border:1px solid #cbd5e1; border-radius:4px; background:#f8fafc; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;" title="点击编辑分析结论">${escHtml(val) || '<span style="color:#94a3b8">点击录入分析结论...</span>'}</div>`;
       } else {
         html += `<input data-id="${id}" data-f="${c.key}" value="${escHtml(row[c.key]||'')}" placeholder="—">`;
       }
@@ -1219,26 +1436,134 @@ function buildValuationIssueGroups(){
 }
 function buildActionItems(){
   const items = [];
-  buildValuationIssueGroups().forEach(group=>{
-    items.push({level:group.level, title:`${group.title} ${group.count} 条`, detail:group.action});
-  });
-  const groups = buildExposureGroups();
   const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  const concentrated = groups.find(g=>totalVal && g.value/totalVal>0.35);
-  if(concentrated) items.push({level:'info', title:`${concentrated.name} 占比 ${(concentrated.value/totalVal*100).toFixed(1)}%`, detail:'已超过 35%，需要确认是否符合预期'});
-  if(!S.snapshot) items.unshift({level:'warn', title:'尚未确认快照', detail:'点击右上角“确认快照”后，首页会以较上次快照为主口径'});
+  
+  // Layer 1: Data Quality Check
+  const quality = getValuationQualityStats();
+  if (quality.missing > 0) {
+    items.push({
+      level: 'warn',
+      tier: '数据质量',
+      title: `估值数据存在缺口 (${quality.missing} 条)`,
+      detail: '建议补齐基金净值或参照标的涨跌，确保合并总资产可信。'
+    });
+  }
+
+  // Layer 2: Hard Risk Redlines (Governance, Finance, Negatives)
+  const redlineAssets = S.rows.filter(r => r.redline && r.redline !== '无');
+  redlineAssets.forEach(r => {
+    items.push({
+      level: 'risk',
+      tier: '风险红线',
+      title: `触发【${r.redline}】: ${r.name || r.code}`,
+      detail: `根据何刚一票否决规则，触发红线资产建议暂停加仓，复核并制定退出计划。分析结论: ${r.analysisNote || '未填写结论'}`
+    });
+  });
+
+  // Layer 3: Portfolio Constraints (Concentration, Overlaps, Allocations)
+  const groups = buildExposureGroups();
+  groups.forEach(g => {
+    if (totalVal && (g.value / totalVal) > 0.35) {
+      items.push({
+        level: 'adjust',
+        tier: '组合约束',
+        title: `单一敞口超限: ${g.name} (${(g.value/totalVal*100).toFixed(1)}%)`,
+        detail: `单一行业或参照标的超过35%配置红线，建议通过再平衡工具进行分批减配。`
+      });
+    }
+  });
+
+  // Check single stock threshold (15% rule for equity)
+  S.rows.forEach(r => {
+    const rval = getRowValue(r);
+    if (totalVal && r.cat === '股票' && (rval / totalVal) > 0.15) {
+      items.push({
+        level: 'adjust',
+        tier: '组合约束',
+        title: `个股比例超限: ${r.name || r.code} (${(rval/totalVal*100).toFixed(1)}%)`,
+        detail: `单一股票占比超过 15%，触碰持仓上限约束，建议复核基本面或分批调仓。`
+      });
+    }
+  });
+
+  // Layer 4: Fundamental Change / Strategic Rebalancing suggestions
+  if(!S.snapshot) {
+    items.push({
+      level: 'observe',
+      tier: '日常观察',
+      title: '日常比较快照未确认',
+      detail: '点击右上角“确认快照”以建立日常基准，监控资产日内真实偏离。'
+    });
+  } else {
+    // Check if target allocation is offset significantly (>5%)
+    CATS.forEach(cat => {
+      const actual = S.rows.filter(r => normalizeCategory(r.cat)===cat).reduce((s,r)=>s+getRowValue(r),0);
+      const actPct = totalVal ? actual/totalVal*100 : 0;
+      const targetKey = 'all';
+      const targets = S.targets[targetKey];
+      const tsum = Object.values(targets).reduce((a,b)=>a+b,0);
+      const scale = tsum>0 ? 100/tsum : 0;
+      const tgt = (targets[cat]||0)*scale;
+      const diff = actPct - tgt;
+      if (Math.abs(diff) > 5) {
+        items.push({
+          level: 'review',
+          tier: '大类平衡',
+          title: `大类偏离过大: ${cat} 偏离 ${diff.toFixed(1)}%`,
+          detail: `当前配置 ${actPct.toFixed(1)}% vs 目标 ${tgt.toFixed(1)}%。偏离度 > 5%，建议分批调整。`
+        });
+      }
+    });
+  }
+
+  // Fallback to general review
+  if (items.length === 0) {
+    items.push({
+      level: 'observe',
+      tier: '日常观察',
+      title: '组合处于健康区间',
+      detail: '暂无重大风险红线或配置偏离，请继续保持日常观察。'
+    });
+  }
+
   return items;
 }
+
 function renderActionItems(){
-  const items = buildActionItems().slice(0,4);
+  const items = buildActionItems();
   if(!items.length) return '<div class="alloc-empty">暂无待处理事项</div>';
-  return '<div class="alloc-list">'+items.map(item=>`
-    <div class="alloc-row" style="grid-template-columns:120px 1fr 72px">
-      <div class="alloc-name">${item.title}</div>
-      <div style="font-size:12px;color:#64748b">${item.detail}</div>
-      <div class="status-pill ${item.level==='warn'?'warn':'est'}">${item.level==='warn'?'待处理':'关注'}</div>
+  
+  // Sort by priority level
+  const order = { 'risk': 0, 'warn': 1, 'adjust': 2, 'review': 3, 'observe': 4 };
+  items.sort((a,b) => (order[a.level] ?? 99) - (order[b.level] ?? 99));
+
+  const shown = items.slice(0, 5); // Show up to 5 items
+
+  const summaryBadges = `
+    <div style="display:flex;gap:8px;margin-bottom:12px;font-size:12px;flex-wrap:wrap;">
+      <span class="status-pill risk">一票否决红线: ${items.filter(i=>i.level==='risk').length}</span>
+      <span class="status-pill warn">待补数据缺口: ${items.filter(i=>i.level==='warn').length}</span>
+      <span class="status-pill adjust">组合超限偏离: ${items.filter(i=>i.level==='adjust'||i.level==='review').length}</span>
+      <span class="status-pill observe">正常观察事件: ${items.filter(i=>i.level==='observe').length}</span>
+    </div>
+  `;
+
+  return summaryBadges + '<div class="alloc-list">'+shown.map(item=>`
+    <div class="alloc-row" style="grid-template-columns:150px 1fr 85px; align-items:center; gap:12px;">
+      <div>
+        <span style="font-size:10px;text-transform:uppercase;color:#64748b;display:block;margin-bottom:2px;">${item.tier || 'RULE'}</span>
+        <div class="alloc-name" style="font-weight:600;font-size:13px;white-space:normal;">${item.title}</div>
+      </div>
+      <div style="font-size:12px;color:#475569;line-height:1.4;">${item.detail}</div>
+      <div class="status-pill ${item.level}" style="text-align:center;">
+        ${item.level === 'risk' ? '一票否决' : 
+          item.level === 'warn' ? '补齐数据' : 
+          item.level === 'adjust' ? '配置超限' : 
+          item.level === 'review' ? '大类偏离' : '观察/复核'}
+      </div>
     </div>`).join('')+'</div>';
 }
+
 function renderExposureImpact(){
   const el = document.getElementById('exposureImpact');
   if(!el) return;
@@ -1940,5 +2265,17 @@ setTimeout(fetchMarket, 400);
 // Refresh every 5 min
 mktTimer = setInterval(fetchMarket, 300000);
 </script>
+
+<!-- Note Micro-Modal Editor for Responsive/Mobile Editing -->
+<div class="note-modal" id="noteEditModal">
+  <div class="note-modal-box">
+    <div class="note-modal-header" id="noteEditModalTitle">编辑分析结论</div>
+    <textarea class="note-modal-textarea" id="noteEditModalTextarea" placeholder="在此录入何刚方法论深度分析结论..."></textarea>
+    <div class="note-modal-footer">
+      <button class="btn btn-ghost" onclick="closeNoteEditModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmNoteEditModal()">保存修改</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
