@@ -45,10 +45,10 @@ function loadMockDemoData() {
   setTimeout(fetchMarket, 400);
 }
 
-function openNoteEditModal(rowId, assetName, currentNote) {
-  activeEditingRowId = rowId;
-  document.getElementById('noteEditModalTitle').textContent = `编辑【${assetName || '未命名资产'}】的分析结论`;
-  document.getElementById('noteEditModalTextarea').value = currentNote || '';
+function openNoteEditModal(el) {
+  activeEditingRowId = parseInt(el.dataset.agentId);
+  document.getElementById('noteEditModalTitle').textContent = `编辑【${el.dataset.agentName || '未命名资产'}】的分析结论`;
+  document.getElementById('noteEditModalTextarea').value = el.dataset.agentNote || '';
   document.getElementById('noteEditModal').classList.add('open');
 }
 
@@ -582,6 +582,10 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
       <span style="background:#f4f4f5;color:#52525b;padding:1px 6px;border-radius:4px;font-weight:700">灰色</span> = 自定义列
     </p>
     <div id="fieldMapList"></div>
+    <div style="margin-top:12px; display:flex; align-items:center; gap:6px; font-size:13px; color:#475569;">
+      <input type="checkbox" id="clearExistingOnImport" style="width:auto; cursor:pointer;">
+      <label for="clearExistingOnImport" style="cursor:pointer; user-select:none; font-weight:500;">导入时先清空现有数据 (全新覆盖)</label>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="cancelImport()">取消</button>
       <button class="btn btn-primary" onclick="confirmImport()">确认导入</button>
@@ -1153,7 +1157,15 @@ function renderTable(scope){
   if(!thead||!tbody) return;
 
   const cols = getColSpec();
-  const rows = scope==='all'? S.rows : S.rows.filter(r=>r.owner===('责任人 '+scope));
+function normalizeOwner(ownerStr) {
+  if (!ownerStr) return '责任人 A';
+  const s = String(ownerStr).trim();
+  if (/责任人\s*A|A\s*$|^A$/i.test(s)) return '责任人 A';
+  if (/责任人\s*B|B\s*$|^B$/i.test(s)) return '责任人 B';
+  return '责任人 A';
+}
+
+  const rows = scope==='all'? S.rows : S.rows.filter(r=>normalizeOwner(r.owner)===('责任人 '+scope));
 
   // ── Header ──
   thead.innerHTML = '<tr>'+
@@ -1183,9 +1195,10 @@ function renderTable(scope){
       } else if(c.key==='_status'){
         html += `<span class="status-pill ${valuation.cls}">${valuation.status}</span>`;
       } else if(c.key==='owner'){
+        const normalizedOwner = normalizeOwner(row.owner);
         html += `<select data-id="${id}" data-f="owner">
-          <option ${row.owner==='责任人 A'?'selected':''}>责任人 A</option>
-          <option ${row.owner==='责任人 B'?'selected':''}>责任人 B</option>
+          <option ${normalizedOwner==='责任人 A'?'selected':''}>责任人 A</option>
+          <option ${normalizedOwner==='责任人 B'?'selected':''}>责任人 B</option>
         </select>`;
       } else if(c.key==='cat'){
         const currentCat = normalizeCategory(row.cat);
@@ -1203,8 +1216,9 @@ function renderTable(scope){
         html += `<input data-id="${id}" data-f="extra:${ek}" value="${escHtml(val)}" placeholder="—">`;
       } else if (c.key === 'analysisNote') {
         const val = row[c.key] || '';
-        const escapedVal = escHtml(val).replace(/`/g, '\`').replace(/'/g, "'");
-        html += `<div class="analysis-cell-click" onclick="openNoteEditModal(${id}, '${String(row.name).replace(/'/g, "'")}', \`${escapedVal}\`)" style="cursor:pointer; min-height:30px; padding:6px; border:1px solid #cbd5e1; border-radius:4px; background:#f8fafc; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;" title="点击编辑分析结论">${escHtml(val) || '<span style="color:#94a3b8">点击录入分析结论...</span>'}</div>`;
+        const escapedVal = escHtml(val);
+        const escapedName = String(row.name||'').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        html += `<div class="analysis-cell-click" data-agent-id="${id}" data-agent-name="${escapedName}" data-agent-note="${escapedVal}" onclick="openNoteEditModal(this)" style="cursor:pointer; min-height:30px; padding:6px; border:1px solid #cbd5e1; border-radius:4px; background:#f8fafc; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;" title="点击编辑分析结论">${escapedVal || '<span style="color:#94a3b8">点击录入分析结论...</span>'}</div>`;
       } else {
         html += `<input data-id="${id}" data-f="${c.key}" value="${escHtml(row[c.key]||'')}" placeholder="—">`;
       }
@@ -1280,8 +1294,8 @@ function renderAllocationBars(elId, rows){
 function renderOwnerShareBars(){
   const el = document.getElementById('ownerShareBars');
   if(!el) return;
-  const rowsA = S.rows.filter(r=>r.owner==='责任人 A');
-  const rowsB = S.rows.filter(r=>r.owner==='责任人 B');
+  const rowsA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A');
+  const rowsB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B');
   const data = [
     {name:'责任人 A', amount:rowsA.reduce((s,r)=>s+getRowValue(r),0), color:'#2563eb'},
     {name:'责任人 B', amount:rowsB.reduce((s,r)=>s+getRowValue(r),0), color:'#d97706'}
@@ -1665,8 +1679,9 @@ function renderOwnerRow(){
   const el = document.getElementById('ownerRow');
   if(!el) return;
   const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  const totA = S.rows.filter(r=>r.owner==='责任人 A').reduce((s,r)=>s+getRowValue(r),0);
-  const totB = S.rows.filter(r=>r.owner==='责任人 B').reduce((s,r)=>s+getRowValue(r),0);
+  
+  const totA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A').reduce((s,r)=>s+getRowValue(r),0);
+  const totB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B').reduce((s,r)=>s+getRowValue(r),0);
   el.innerHTML = [
     {name:'责任人 A', amt:totA, pct:tot?totA/tot*100:0},
     {name:'责任人 B', amt:totB, pct:tot?totB/tot*100:0},
@@ -1771,8 +1786,8 @@ function applyPreset(idx){
 //  RENDER ALL
 // ══════════════════════════════════════════════════════════════
 function renderAll(light=false){
-  const rowsA = S.rows.filter(r=>r.owner==='责任人 A');
-  const rowsB = S.rows.filter(r=>r.owner==='责任人 B');
+  const rowsA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A');
+  const rowsB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B');
 
   renderSnapshotInfo();
   renderKPI('kpiRow',  S.rows, '合并');
@@ -1854,7 +1869,7 @@ function checkAlert(){
 //  ADD ROW
 // ══════════════════════════════════════════════════════════════
 function addRow(owner){
-  const row = {id:S.nextId++, owner:owner?'责任人 '+owner:'责任人 A', name:'', cat:'基金/ETF', amount:'', code:'', shares:'', cost:'', note:'', extra:{}};
+  const row = {id:S.nextId++, owner:owner?'责任人 '+owner:'责任人 A', name:'', cat:'基金/ETF', amount:'', code:'', shares:'', cost:'', nav:'', note:'', redline:'无', analysisNote:'', extra:{}};
   S.rows.push(row);
   save();
   renderAll();
@@ -1992,13 +2007,24 @@ function cancelImport(){
 function confirmImport(){
   document.getElementById('importModal').classList.remove('open');
 
+  // ── 处理"清空现有数据"复选框 ──
+  const clearExisting = document.getElementById('clearExistingOnImport');
+  if (clearExisting && clearExisting.checked) {
+    S.rows = [];
+    S.extraFields = [];
+    S.nextId = 1;
+  }
+
   // Merge extra fields (avoid duplicates by label)
   const existingLabels = new Set(S.extraFields.map(e=>e.label));
   pendingExtra.forEach(ef=>{ if(!existingLabels.has(ef.label)){ S.extraFields.push(ef); existingLabels.add(ef.label); } });
 
-  let count=0;
+  // ── 构建已有资产的去重索引 (所有者+资产名称) ──
+  const existingKeys = new Set(S.rows.map(r => `${String(r.owner||'').trim()}|||${String(r.name||'').trim()}`));
+
+  let count=0, skipped=0;
   pendingRows.forEach(row=>{
-    const obj = {id:S.nextId++, owner:'责任人 A', name:'', cat:'其他', amount:0, code:'', shares:'', cost:'', nav:'', benchmark:'', note:'', extra:{}};
+    const obj = {id:S.nextId++, owner:'责任人 A', name:'', cat:'其他', amount:0, code:'', shares:'', cost:'', nav:'', benchmark:'', note:'', redline:'无', analysisNote:'', extra:{}};
     pendingMap.forEach((cm,ci)=>{
       const val = row[ci]!==undefined?String(row[ci]).trim():'';
       if(!val) return;
@@ -2024,14 +2050,31 @@ function confirmImport(){
       if(/A/i.test(obj.owner)) obj.owner='责任人 A';
       else if(/B/i.test(obj.owner)) obj.owner='责任人 B';
       else obj.owner='责任人 A';
+    } else {
+      obj.owner = '责任人 A';
     }
     obj.cat = normalizeCategory(obj.cat);
     obj.benchmark = inferBenchmark(obj);
-    if(obj.name||obj.amount){ S.rows.push(obj); count++; }
+
+    // ── 跳过空行 ──
+    if(!obj.name && !obj.amount) return;
+
+    // ── 去重：同一所有者 + 同一资产名称只保留第一次导入 ──
+    const dedupKey = `${obj.owner}|||${obj.name}`;
+    if (existingKeys.has(dedupKey)) {
+      skipped++;
+      S.nextId--; // 回收未使用的 ID
+      return;
+    }
+    existingKeys.add(dedupKey);
+
+    S.rows.push(obj); count++;
   });
 
   save(); renderAll();
-  toast(`成功导入 ${count} 条资产记录`);
+  let msg = `成功导入 ${count} 条资产记录`;
+  if (skipped > 0) msg += `，跳过 ${skipped} 条重复`;
+  toast(msg);
   pendingRows=[]; pendingMap=[]; pendingExtra=[];
 
   // Auto-add watch codes from imported rows
