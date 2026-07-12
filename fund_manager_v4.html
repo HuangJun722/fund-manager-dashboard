@@ -171,6 +171,9 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .settings-card-actions{display:flex;gap:8px;flex-wrap:wrap}
 .crypto-sync-status{font-size:12px;color:#64748b;margin-top:10px;line-height:1.45}
 .crypto-sync-status.ok{color:#047857}.crypto-sync-status.warn{color:#b45309}.crypto-sync-status.err{color:#be123c}
+.github-sync-grid{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-top:10px}
+.github-token-input{border:1px solid #e2e8f0;border-radius:6px;padding:7px 9px;font-size:13px;min-width:0}
+.github-sync-meta{font-size:12px;color:#64748b;margin-top:8px;line-height:1.45}
 .preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px}
 .preset-btn{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:9px 10px;text-align:left;cursor:pointer;font-family:inherit;transition:all .15s}
 .preset-btn:hover{border-color:#2563eb;background:#f8fbff}
@@ -570,6 +573,21 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
       <div id="cryptoSyncStatus" class="crypto-sync-status">云端加密资产：检测中</div>
       <div style="font-size:12px;color:#888;margin-top:10px">这些操作属于偶尔维护，已从首页顶部下沉到设置页。</div>
     </div>
+
+    <div class="chart-box">
+      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">GitHub 云端写回</h4>
+      <div class="github-sync-grid">
+        <input id="githubTokenInput" class="github-token-input" type="password" autocomplete="off" placeholder="Fine-grained token，仅本机保存">
+        <button class="btn btn-ghost" onclick="saveGitHubToken()">保存</button>
+      </div>
+      <div class="settings-card-actions" style="margin-top:10px">
+        <button class="btn btn-primary" onclick="startGitHubSync()">同步到云端</button>
+        <button class="btn btn-ghost" onclick="loadRemoteEncryptedPortfolio(true)">从云端加载</button>
+        <button class="btn btn-ghost" onclick="clearGitHubToken()">清除 token</button>
+      </div>
+      <div id="githubSyncStatus" class="crypto-sync-status">GitHub 写回：未配置</div>
+      <div class="github-sync-meta">写回目标：fund-manager-dashboard / data/portfolio.encrypted.json。token 仅用于写仓库，资产内容会先用主密码加密。</div>
+    </div>
   </div>
 </div>
 
@@ -616,9 +634,17 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 const CATS = ['现金/存款','固收/理财','基金/ETF','股票','加密/另类','其他'];
 const CAT_COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#64748b'];
 const LS_KEY = 'fgov_v4';
+const GITHUB_SYNC_KEY = 'fgov_github_sync_v1';
 const REMOTE_QUOTE_CACHE_URL = 'data/quotes_cache_latest.json';
 const REMOTE_PORTFOLIO_URL = 'data/portfolio.encrypted.json';
 const CRYPTO_ITERATIONS = 600000;
+const GITHUB_SYNC_DEFAULTS = {
+  owner: 'HuangJun722',
+  repo: 'fund-manager-dashboard',
+  branch: 'main',
+  sourcePath: 'data/portfolio.encrypted.json',
+  pagesPath: 'docs/data/portfolio.encrypted.json'
+};
 
 // ── Field alias maps for fuzzy matching ──
 // CORE: MUST resolve to these 4 keys
@@ -1011,6 +1037,96 @@ function setCryptoModalStatus(msg, cls=''){
   el.className = 'modal-status'+(cls?' '+cls:'');
   el.textContent = msg || '';
 }
+function getGitHubSyncConfig(){
+  let saved = {};
+  try{ saved = JSON.parse(localStorage.getItem(GITHUB_SYNC_KEY) || '{}') || {}; }catch(e){}
+  return Object.assign({}, GITHUB_SYNC_DEFAULTS, saved);
+}
+function setGitHubSyncStatus(msg, cls=''){
+  const el = document.getElementById('githubSyncStatus');
+  if(!el) return;
+  el.className = 'crypto-sync-status'+(cls?' '+cls:'');
+  el.textContent = msg;
+}
+function initGitHubSyncUI(){
+  const cfg = getGitHubSyncConfig();
+  const input = document.getElementById('githubTokenInput');
+  if(input && cfg.token) input.value = cfg.token;
+  setGitHubSyncStatus(cfg.token ? 'GitHub 写回：token 已保存在本机' : 'GitHub 写回：未配置 token', cfg.token ? 'ok' : 'warn');
+}
+function saveGitHubToken(){
+  const input = document.getElementById('githubTokenInput');
+  const token = input ? input.value.trim() : '';
+  if(!token){ toast('请先粘贴 GitHub fine-grained token'); return; }
+  const cfg = getGitHubSyncConfig();
+  cfg.token = token;
+  localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify(cfg));
+  setGitHubSyncStatus('GitHub 写回：token 已保存在本机', 'ok');
+  toast('GitHub token 已保存在本机');
+}
+function clearGitHubToken(){
+  const cfg = getGitHubSyncConfig();
+  delete cfg.token;
+  localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify(cfg));
+  const input = document.getElementById('githubTokenInput');
+  if(input) input.value = '';
+  setGitHubSyncStatus('GitHub 写回：token 已清除', 'warn');
+  toast('GitHub token 已清除');
+}
+async function githubJsonRequest(url, options={}){
+  const cfg = getGitHubSyncConfig();
+  if(!cfg.token) throw new Error('请先保存 GitHub fine-grained token');
+  const res = await fetch(url, Object.assign({
+    headers: {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer '+cfg.token,
+      'X-GitHub-Api-Version': '2022-11-28'
+    }
+  }, options));
+  if(res.status===404) return {status:404, data:null};
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if(!res.ok){
+    const msg = data && data.message ? data.message : ('HTTP '+res.status);
+    throw new Error(msg);
+  }
+  return {status:res.status, data};
+}
+async function getGitHubFileSha(path){
+  const cfg = getGitHubSyncConfig();
+  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(path).replace(/%2F/g,'/')}?ref=${encodeURIComponent(cfg.branch)}`;
+  const result = await githubJsonRequest(url);
+  return result.status===404 ? '' : (result.data && result.data.sha) || '';
+}
+async function putGitHubFile(path, text, message){
+  const cfg = getGitHubSyncConfig();
+  const sha = await getGitHubFileSha(path);
+  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(path).replace(/%2F/g,'/')}`;
+  const body = {
+    message,
+    content: bytesToBase64(textEncoder.encode(text)),
+    branch: cfg.branch
+  };
+  if(sha) body.sha = sha;
+  return githubJsonRequest(url, {
+    method: 'PUT',
+    headers: {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer '+cfg.token,
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+}
+async function uploadEncryptedPortfolio(envelope){
+  const cfg = getGitHubSyncConfig();
+  const text = JSON.stringify(envelope, null, 2);
+  const stamp = new Date().toISOString().replace('T',' ').slice(0,16);
+  await putGitHubFile(cfg.sourcePath, text, 'Update encrypted portfolio '+stamp);
+  await putGitHubFile(cfg.pagesPath, text, 'Publish encrypted portfolio '+stamp);
+  return envelopeFingerprint(envelope);
+}
 function openCryptoModal(mode, envelope=null){
   cryptoModalMode = mode;
   pendingCryptoEnvelope = envelope;
@@ -1025,6 +1141,10 @@ function openCryptoModal(mode, envelope=null){
     title.textContent = '导出加密资产';
     msg.textContent = '用主密码加密当前资产数据，并下载 portfolio.encrypted.json。';
     confirmBtn.textContent = '加密下载';
+  }else if(mode==='github-sync'){
+    title.textContent = '同步到 GitHub';
+    msg.textContent = '输入主密码后，页面会先在本机加密资产，再把密文写回 GitHub 仓库。';
+    confirmBtn.textContent = '加密并同步';
   }else{
     title.textContent = '解锁云端加密资产';
     msg.textContent = '输入主密码后，资产数据只会在本浏览器内解密并保存到本机缓存。';
@@ -1053,6 +1173,23 @@ async function confirmCryptoModal(){
       setCryptoSyncStatus('云端加密资产：已生成本地加密文件，提交到仓库后可跨设备加载', 'ok');
       closeCryptoModal();
       toast('加密资产文件已下载');
+    }else if(cryptoModalMode==='github-sync'){
+      save();
+      setCryptoModalStatus('正在加密并写回 GitHub，请勿关闭页面...');
+      setGitHubSyncStatus('GitHub 写回：正在加密并提交...', 'warn');
+      const envelope = await encryptStateEnvelope(password);
+      const fingerprint = await uploadEncryptedPortfolio(envelope);
+      S.cryptoSync = {
+        source:'github-api',
+        loadedAt:new Date().toISOString(),
+        fingerprint,
+        repo:getGitHubSyncConfig().repo
+      };
+      persistState();
+      setCryptoSyncStatus('云端加密资产：已同步到 GitHub', 'ok');
+      setGitHubSyncStatus('GitHub 写回：已同步到云端，等待 Pages 刷新', 'ok');
+      closeCryptoModal();
+      toast('已同步到 GitHub');
     }else{
       if(!pendingCryptoEnvelope) throw new Error('没有待解锁的云端加密资产');
       setCryptoModalStatus('正在解密...');
@@ -1073,6 +1210,19 @@ async function confirmCryptoModal(){
 }
 function startEncryptedExport(){
   openCryptoModal('export');
+}
+function startGitHubSync(){
+  const cfg = getGitHubSyncConfig();
+  if(!cfg.token){
+    setGitHubSyncStatus('GitHub 写回：请先保存 fine-grained token', 'warn');
+    toast('请先保存 GitHub token');
+    return;
+  }
+  if(!S.rows.length){
+    toast('当前没有资产数据可同步');
+    return;
+  }
+  openCryptoModal('github-sync');
 }
 async function loadRemoteEncryptedPortfolio(manual=false){
   if(location.protocol==='file:'){
@@ -2316,6 +2466,7 @@ function toast(msg,dur=2500){
 // ══════════════════════════════════════════════════════════════
 load();
 renderAll();
+initGitHubSyncUI();
 loadRemoteQuoteCache().then(()=>loadRemoteEncryptedPortfolio(false));
 // Auto-fetch market on load
 setTimeout(fetchMarket, 400);
