@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>家庭资金治理台 v4</title>
+<title>家庭资金治理台 v4.5</title>
 <script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 // ═══ QUICK WINS: DATA & RESPONSIVE IMPROVEMENTS ══════════════════════
@@ -40,6 +40,8 @@ function loadMockDemoData() {
   ];
   S.rows = demoRows;
   S.nextId = 10;
+  S.transactions = [];
+  S.snapshot = null;
   save();
   renderAll();
   toast('已成功导入9条高度真实的模拟演示资产数据！');
@@ -75,7 +77,7 @@ function confirmNoteEditModal() {
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f4f6f8;color:#1f2933;font-size:14px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f7f8fa;color:#1f2933;font-size:14px}
 /* ── Top bar ── */
 #topbar{background:#172033;color:#f8fafc;padding:0 20px;height:54px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(15,23,42,.24)}
 #topbar h1{font-size:17px;font-weight:700;letter-spacing:.5px}
@@ -94,27 +96,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 /* ── KPI Cards ── */
 .kpi-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
 .kpi-card{background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:150px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-.kpi-card .label{font-size:12px;color:#888;margin-bottom:4px}
+.kpi-card .label{font-size:12px;color:#64748b;margin-bottom:4px}
 .kpi-card .val{font-size:22px;font-weight:700;color:#1a1a1a}
-.kpi-card .sub{font-size:11px;color:#aaa;margin-top:2px}
+.kpi-card .sub{font-size:12px;color:#64748b;margin-top:2px}
 /* ── Owner summary ── */
 .owner-row{display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap}
 .owner-card{background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:200px;box-shadow:0 1px 4px rgba(0,0,0,.08);border:1px solid #e5e7eb}
-.owner-card .name{font-size:13px;color:#888;margin-bottom:4px}
+.owner-card .name{font-size:13px;color:#64748b;margin-bottom:4px}
 .owner-card .amount{font-size:20px;font-weight:700}
-.owner-card .pct{font-size:12px;color:#aaa;margin-top:2px}
+.owner-card .pct{font-size:12px;color:#64748b;margin-top:2px}
 /* ── Section headers ── */
 .sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .sec-hdr h3{font-size:14px;font-weight:700;color:#333;display:flex;align-items:center;gap:6px}
 /* ── Charts ── */
 .chart-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px}
 .chart-box{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);flex:1;min-width:280px}
-.chart-box h4{font-size:13px;color:#666;margin-bottom:10px;text-align:center}
+.chart-box h3,.chart-box h4{font-size:13px;color:#475569;margin-bottom:10px;text-align:center}
 .chart-box canvas{max-height:220px}
 .focus-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:18px}
 .focus-card{background:#fff;border-radius:10px;padding:13px 15px;box-shadow:0 1px 4px rgba(0,0,0,.08);border:1px solid #e5e7eb}
 .focus-card.warn{background:#fffbeb;border-color:#f59e0b}.focus-card.good{background:#f0fdf4;border-color:#86efac}.focus-card.bad{background:#fff1f2;border-color:#fb7185}
-.focus-card .label{font-size:12px;color:#888;margin-bottom:5px}.focus-card .value{font-size:19px;font-weight:700}.focus-card .sub{font-size:11px;color:#999;margin-top:3px}
+.focus-card .label{font-size:12px;color:#64748b;margin-bottom:5px}.focus-card .value{font-size:19px;font-weight:700}.focus-card .sub{font-size:12px;color:#64748b;margin-top:3px}
 .alloc-list{display:flex;flex-direction:column;gap:9px;margin-top:8px}
 .alloc-row{display:grid;grid-template-columns:82px 1fr 92px;gap:8px;align-items:center;font-size:12px}
 .alloc-name{color:#555;white-space:nowrap}.alloc-bar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden}.alloc-fill{height:100%;border-radius:999px}
@@ -145,22 +147,22 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .del-btn{background:none;border:none;color:#ff4d4f;cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px;transition:background .15s}
 .del-btn:hover{background:#fff1f0}
 .price-cell,.mv-cell,.pnl-cell{font-size:13px}
-.rise{color:#f5222d}.fall{color:#52c41a}.flat{color:#888}
+.rise{color:#c92a2a}.fall{color:#15803d}.flat{color:#64748b}
 /* ── Rebalance ── */
 .reb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:18px}
 .reb-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .reb-card .cat-name{font-size:13px;font-weight:600;margin-bottom:8px}
 .reb-card .prog-wrap{background:#f0f0f0;border-radius:4px;height:8px;margin-bottom:6px;overflow:hidden}
 .reb-card .prog-bar{height:8px;border-radius:4px;transition:width .4s}
-.reb-card .numbers{display:flex;justify-content:space-between;font-size:12px;color:#888}
+.reb-card .numbers{display:flex;justify-content:space-between;font-size:12px;color:#64748b}
 .reb-card .suggest{font-size:12px;margin-top:6px;padding:4px 8px;border-radius:4px;font-weight:600}
-.suggest.ok{background:#f6ffed;color:#389e0d}
+.suggest.ok{background:#f0fdf4;color:#166534}
 .suggest.over{background:#fff7e6;color:#d46b08}
 .suggest.under{background:#e6f7ff;color:#0958d9}
 .target-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12px}
 .target-row label{width:90px;color:#666;white-space:nowrap}
 .target-row input[type=number]{width:76px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;font-size:13px;text-align:right}
-.target-row .unit{font-size:12px;color:#888}
+.target-row .unit{font-size:12px;color:#64748b}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .advanced-config{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden}
 .advanced-config summary{list-style:none;cursor:pointer;padding:14px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
@@ -181,7 +183,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .preset-btn span{display:block;font-size:11px;color:#64748b}
 .preset-btn .ratios{margin-top:4px;color:#334155;line-height:1.45}
 #targetSum{font-size:12px;margin-top:6px;padding:4px 8px;border-radius:4px;font-weight:600}
-.sum-ok{background:#f6ffed;color:#389e0d}
+.sum-ok{background:#f0fdf4;color:#166534}
 .sum-err{background:#fff7e6;color:#b45309}
 /* ── Market grid ── */
 .market-tools{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
@@ -189,7 +191,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .quality-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:18px}
 .quality-card{background:#fff;border-radius:10px;padding:13px 15px;border:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .quality-card.good{background:#f0fdf4;border-color:#86efac}.quality-card.warn{background:#fffbeb;border-color:#f59e0b}.quality-card.bad{background:#fff1f2;border-color:#fb7185}
-.quality-card .label{font-size:12px;color:#888;margin-bottom:5px}.quality-card .value{font-size:19px;font-weight:700}.quality-card .sub{font-size:11px;color:#999;margin-top:3px}
+.quality-card .label{font-size:12px;color:#64748b;margin-bottom:5px}.quality-card .value{font-size:19px;font-weight:700}.quality-card .sub{font-size:12px;color:#64748b;margin-top:3px}
 .issue-list{display:flex;flex-direction:column;gap:10px}
 .issue-row{display:grid;grid-template-columns:128px 1fr 84px;gap:10px;align-items:center;font-size:12px}
 .issue-title{font-weight:700;color:#334155}.issue-detail{color:#64748b;line-height:1.45}
@@ -200,13 +202,13 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .secondary-body{padding:0 16px 16px}
 .mkt-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
 .mkt-card{background:#fff;border-radius:10px;padding:12px 16px;min-width:160px;box-shadow:0 1px 4px rgba(0,0,0,.08);position:relative;cursor:default}
-.mkt-card .mname{font-size:12px;color:#888;margin-bottom:2px}
+.mkt-card .mname{font-size:12px;color:#64748b;margin-bottom:2px}
 .mkt-card .mprice{font-size:18px;font-weight:700}
 .mkt-card .mchg{font-size:13px;margin-top:2px;font-weight:600}
 .mkt-card .muted{color:#94a3b8}
 .mkt-card-del{position:absolute;top:6px;right:8px;background:none;border:none;color:#ccc;cursor:pointer;font-size:14px}
 .mkt-card-del:hover{color:#ff4d4f}
-.mkt-section-title{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.8px;margin:8px 0 6px}
+.mkt-section-title{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin:8px 0 6px}
 .valuation-table{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:auto;margin-bottom:18px}
 .valuation-table table{min-width:900px}
 .status-pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;background:#f1f5f9;color:#475569}
@@ -220,17 +222,89 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .hegang-tag { background: #fee2e2; color: #991b1b; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #fca5a5; }
 .focus-card.risk { background: #fee2e2 !important; border-color: #fca5a5 !important; color: #991b1b !important; }
 .status-pill.bad{background:#fff1f2;color:#be123c}
-.quote-note{font-size:12px;color:#888;margin-left:8px}
+.quote-note{font-size:12px;color:#64748b;margin-left:8px}
 /* ── Notes ── */
 .notes-area{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:13px;resize:vertical;min-height:80px;font-family:inherit}
 .notes-area:focus{outline:none;border-color:#2563eb}
 /* ── Buttons ── */
 .btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:500;transition:all .15s;white-space:nowrap}
 .btn-primary{background:#2563eb;color:#fff}.btn-primary:hover{background:#1d4ed8}
-.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-success{background:#15803d;color:#fff}.btn-success:hover{background:#166534}
 .btn-warn{background:#d97706;color:#fff}.btn-warn:hover{background:#b45309}
 .btn-danger{background:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
 .btn-ghost{background:#f1f5f9;color:#334155}.btn-ghost:hover{background:#e2e8f0}
+.btn:focus-visible,.tab-btn:focus-visible,.bottom-nav-btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid rgba(37,99,235,.25);outline-offset:2px}
+.btn:disabled{cursor:not-allowed;opacity:.55}
+/* ── Decision home ── */
+.empty-state{display:none;background:#fff;border:1px solid #dbe3ec;border-radius:8px;padding:28px;min-height:280px;align-items:center;justify-content:center;text-align:center;margin-bottom:18px}
+.empty-state.show{display:flex}
+.empty-state-inner{max-width:620px}
+.empty-state .eyebrow{font-size:12px;color:#64748b;font-weight:700;margin-bottom:8px}
+.empty-state h2{font-size:22px;color:#172033;margin-bottom:10px}
+.empty-state p{font-size:14px;color:#64748b;line-height:1.65;margin:0 auto 18px;max-width:52ch}
+.empty-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+#portfolioContent.is-hidden{display:none}
+.decision-summary{display:grid;grid-template-columns:minmax(260px,1.35fr) minmax(240px,1fr) minmax(200px,.8fr);background:#fff;border:1px solid #dbe3ec;border-radius:8px;box-shadow:0 1px 4px rgba(15,23,42,.06);margin-bottom:14px;overflow:hidden}
+.decision-block{padding:18px 20px;min-width:0}
+.decision-block+.decision-block{border-left:1px solid #e8edf3}
+.decision-question{font-size:12px;color:#64748b;font-weight:700;margin-bottom:7px}
+.decision-total{font-size:30px;line-height:1.15;font-weight:800;color:#172033;font-variant-numeric:tabular-nums}
+.decision-value{font-size:22px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums}
+.decision-value.rise{color:#c92a2a}.decision-value.fall{color:#15803d}.decision-value.warn{color:#b45309}.decision-value.flat{color:#475569}
+.decision-sub{font-size:12px;color:#64748b;line-height:1.5;margin-top:6px}
+.decision-breakdown{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.decision-breakdown div{background:#f6f8fb;border-radius:6px;padding:7px 8px}
+.decision-breakdown span{display:block;font-size:11px;color:#64748b;margin-bottom:2px}
+.decision-breakdown b{font-size:13px;color:#334155;font-variant-numeric:tabular-nums}
+.decision-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.decision-panel{background:#fff;border:1px solid #dbe3ec;border-radius:8px;padding:16px;box-shadow:0 1px 4px rgba(15,23,42,.05);min-width:0}
+.decision-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+.decision-panel-head h2{font-size:15px;color:#1f2937}
+.decision-panel-head span{font-size:12px;color:#64748b}
+.decision-list{display:flex;flex-direction:column;gap:8px}
+.decision-item{display:grid;grid-template-columns:76px 1fr auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #eef2f6}
+.decision-item:last-child{border-bottom:none}
+.decision-item .kind{font-size:11px;color:#64748b;font-weight:700}
+.decision-item .main{min-width:0;font-size:13px;color:#334155;line-height:1.45}
+.decision-item .main b{display:block;color:#1f2937;margin-bottom:2px}
+.decision-empty{font-size:13px;color:#64748b;padding:12px 0}
+.next-action{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid #eef2f6}
+.next-action:last-child{border-bottom:none}
+.next-action b{display:block;font-size:13px;color:#1f2937;margin-bottom:3px}
+.next-action p{font-size:12px;color:#64748b;line-height:1.45}
+.section-title{font-size:14px;color:#334155;margin:18px 0 10px}
+.owner-card.actionable{cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.owner-card.actionable:hover{border-color:#93c5fd;box-shadow:0 2px 8px rgba(37,99,235,.12)}
+/* ── Transaction log ── */
+.record-layout{display:grid;grid-template-columns:minmax(320px,.85fr) minmax(380px,1.15fr);gap:16px;align-items:start}
+.record-panel{background:#fff;border:1px solid #dbe3ec;border-radius:8px;padding:18px;box-shadow:0 1px 4px rgba(15,23,42,.05)}
+.record-panel h2{font-size:16px;color:#1f2937;margin-bottom:5px}
+.record-help{font-size:12px;color:#64748b;line-height:1.55;margin-bottom:16px}
+.record-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.record-field{min-width:0}
+.record-field.full{grid-column:1/-1}
+.record-field label{display:block;font-size:12px;color:#475569;font-weight:700;margin-bottom:5px}
+.record-field input,.record-field select,.record-field textarea{width:100%;border:1px solid #cbd5e1;border-radius:7px;padding:8px 10px;font-size:13px;font-family:inherit;background:#fff;color:#1f2937}
+.record-field textarea{min-height:72px;resize:vertical}
+.record-hint{font-size:12px;color:#64748b;line-height:1.45;margin-top:5px}
+.record-warning{display:none;background:#fff7e6;color:#9a3412;border:1px solid #fed7aa;border-radius:7px;padding:9px 10px;font-size:12px;line-height:1.5;margin-top:12px}
+.record-warning.show{display:block}
+.record-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.tx-list{display:flex;flex-direction:column}
+.tx-row{display:grid;grid-template-columns:92px 1fr 122px;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid #eef2f6}
+.tx-row:last-child{border-bottom:none}
+.tx-type{font-size:12px;font-weight:700;color:#475569}
+.tx-main{min-width:0}
+.tx-main b{display:block;font-size:13px;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tx-main span{display:block;font-size:12px;color:#64748b;margin-top:2px;line-height:1.4}
+.tx-amount{text-align:right;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.tx-amount.positive{color:#c92a2a}.tx-amount.negative{color:#15803d}.tx-amount.neutral{color:#475569}
+.tx-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.tx-toolbar h3{font-size:14px;color:#334155}
+/* ── Mobile bottom navigation ── */
+#bottomNav{display:none;position:fixed;left:0;right:0;bottom:0;z-index:300;background:#fdfefe;border-top:1px solid #dbe3ec;padding:5px 6px calc(5px + env(safe-area-inset-bottom));box-shadow:0 -4px 14px rgba(15,23,42,.08)}
+.bottom-nav-btn{flex:1;min-width:0;border:0;background:transparent;color:#64748b;font-family:inherit;font-size:11px;padding:7px 4px;border-radius:7px;cursor:pointer}
+.bottom-nav-btn.active{color:#1d4ed8;background:#eff6ff;font-weight:700}
 /* ── Modal ── */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center}
 .modal.open{display:flex}
@@ -254,10 +328,14 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:9px 20px;border-radius:20px;font-size:13px;display:none;z-index:10000;pointer-events:none}
 /* ── responsive ── */
 @media(max-width:760px){
+  body{padding-bottom:68px}
   #topbar{height:auto;min-height:54px;padding:10px 12px;gap:10px;align-items:flex-start}
   #topbar h1{font-size:16px;line-height:1.8}
   #topbar .actions{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  #topbar .desktop-quick{display:none}
   .snapshot-info{width:100%;text-align:right;font-size:11px}
+  #tabBar{display:none}
+  #bottomNav{display:flex}
   .tab-pane{padding:14px 12px}
   .kpi-row,.owner-row,.chart-row{flex-direction:column}
   .tab-btn{padding:10px 14px;font-size:13px}
@@ -270,6 +348,25 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   .market-tools .btn{flex:1;justify-content:center}
   .detail-disclosure summary,.secondary-details summary,.advanced-config summary{align-items:flex-start;gap:8px;flex-direction:column}
   .reb-grid{grid-template-columns:1fr}
+  .decision-summary,.decision-grid,.record-layout{grid-template-columns:1fr}
+  .decision-block+.decision-block{border-left:none;border-top:1px solid #e8edf3}
+  .decision-total{font-size:27px}
+  .decision-item{grid-template-columns:1fr;gap:5px}
+  .decision-item .status-pill{justify-self:start}
+  .next-action{flex-direction:column}
+  .next-action .btn{align-self:flex-start}
+  #actionItems .alloc-row{grid-template-columns:1fr!important;gap:7px!important}
+  #actionItems .status-pill{justify-self:start}
+  .record-grid{grid-template-columns:1fr}
+  .record-field.full{grid-column:auto}
+  .tx-row{grid-template-columns:76px 1fr}
+  .tx-amount{grid-column:2;text-align:left}
+  #toast{bottom:82px;max-width:88vw;text-align:center}
+}
+
+@media print{
+  #bottomNav,#topbar .actions,#tabBar{display:none!important}
+  body{padding-bottom:0}
 }
 
 /* SOP Guide Style */
@@ -304,7 +401,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   border-radius: 8px;
   border: 1px solid #f1f5f9;
 }
-.sop-step h5 {
+.sop-step h4 {
   font-weight: 700;
   color: #0f172a;
   margin-bottom: 6px;
@@ -312,7 +409,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   align-items: center;
   gap: 6px;
 }
-.sop-step h5 .badge {
+.sop-step h4 .badge {
   background: #e2e8f0;
   color: #475569;
   font-size: 10px;
@@ -377,9 +474,10 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 
 <!-- Top Bar -->
 <div id="topbar">
-  <h1>家庭资金治理台 <span style="font-size:11px;opacity:.6;font-weight:400">v4</span></h1>
+  <h1>家庭资金治理台 <span style="font-size:11px;opacity:.6;font-weight:400">v4.5</span></h1>
   <div class="actions">
-    <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">导入</button>
+    <button class="btn btn-ghost desktop-quick" onclick="switchTab('log')">记一笔</button>
+    <button class="btn btn-ghost desktop-quick" onclick="document.getElementById('fileInput').click()">导入</button>
     <input type="file" id="fileInput" accept=".json,.xlsx,.xls,.csv" style="display:none">
     <button class="btn btn-primary" onclick="saveSnap()">确认快照</button>
     <span id="snapshotInfo" class="snapshot-info"></span>
@@ -394,18 +492,85 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   <button class="tab-btn active" data-tab="overview">合并总览</button>
   <button class="tab-btn" data-tab="ownerA">责任人 A</button>
   <button class="tab-btn" data-tab="ownerB">责任人 B</button>
+  <button class="tab-btn" data-tab="log">记一笔</button>
   <button class="tab-btn" data-tab="market">估值监控</button>
   <button class="tab-btn" data-tab="settings">设置</button>
 </div>
 
 <!-- ═══ OVERVIEW TAB ════════════════════════════════════════════════════ -->
 <div id="pane-overview" class="tab-pane active">
-  <!-- SOP / Usage Guide Foldout -->
-  <details class="sop-guide" open>
-    <summary>💡 CIO 资金治理台 · 快速使用指南 (SOP) <span style="font-size:12px; font-weight:normal; color:#64748b; margin-left:8px;">(点击可收起/展开)</span></summary>
+  <div id="emptyPortfolioState" class="empty-state">
+    <div class="empty-state-inner">
+      <div class="eyebrow">首次使用</div>
+      <h2>先建立一份可判断的资产底账</h2>
+      <p>导入 Excel/CSV 会先完整校验，通过后才整体替换现有资产。已有云端密文则直接加载；也可以先记一笔现金或存款余额开始使用。</p>
+      <div class="empty-actions">
+        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">导入资产文件</button>
+        <button class="btn btn-ghost" onclick="loadRemoteEncryptedPortfolio(true)">加载云端数据</button>
+        <button class="btn btn-ghost" onclick="switchTab('log')">记第一笔</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="portfolioContent">
+    <section class="decision-summary" aria-label="日常决策摘要">
+      <div class="decision-block">
+        <div class="decision-question">1. 今天多少钱</div>
+        <div id="decisionTotal" class="decision-total">¥0</div>
+        <div id="decisionTotalSub" class="decision-sub"></div>
+      </div>
+      <div class="decision-block">
+        <div class="decision-question">2. 较上次怎么变</div>
+        <div id="decisionDelta" class="decision-value flat">待确认快照</div>
+        <div id="decisionDeltaSub" class="decision-sub"></div>
+        <div id="decisionBreakdown" class="decision-breakdown"></div>
+      </div>
+      <div class="decision-block">
+        <div class="decision-question">数据可信度</div>
+        <div id="decisionCoverage" class="decision-value flat">—</div>
+        <div id="decisionCoverageSub" class="decision-sub"></div>
+      </div>
+    </section>
+
+    <div class="decision-grid">
+      <section class="decision-panel">
+        <div class="decision-panel-head"><div><span>3. 哪里异常</span><h2>优先关注</h2></div></div>
+        <div id="attentionSummary"></div>
+      </section>
+      <section class="decision-panel">
+        <div class="decision-panel-head"><div><span>4. 下一步做什么</span><h2>建议动作</h2></div></div>
+        <div id="nextActionSummary"></div>
+      </section>
+    </div>
+
+    <h2 class="section-title">资产分布</h2>
+    <div class="owner-row" id="ownerRow"></div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>资产大类分布（合并）</h3><canvas id="chartAlloc"></canvas><div id="allocBars"></div></div>
+      <div class="chart-box"><h3>责任人占比</h3><canvas id="chartOwner"></canvas><div id="ownerShareBars"></div></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>参照标的贡献</h3><div id="exposureImpact"></div></div>
+      <div class="chart-box"><h3>待处理事项明细</h3><div id="actionItems"></div></div>
+    </div>
+    <details class="detail-disclosure">
+      <summary>资产明细与编辑 <span>导入、调整和核对时再打开</span></summary>
+      <div class="sec-hdr" style="padding:0 16px 10px"><h3>全部资产明细</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-success" onclick="addRow()">新增</button>
+        </div>
+      </div>
+      <div class="tbl-wrap"><table><thead id="tblHead"></thead><tbody id="tblBody"></tbody></table></div>
+    </details>
+    <div class="sec-hdr"><h3>再平衡建议（合并）</h3></div>
+    <div id="rebAll"></div>
+  </div>
+
+  <details class="sop-guide">
+    <summary>使用说明 <span style="font-size:12px;font-weight:normal;color:#64748b;margin-left:8px">需要时展开</span></summary>
     <div class="sop-guide-content">
       <div class="sop-step">
-        <h5><span class="badge">1</span> 准备或导入资产数据</h5>
+        <h4><span class="badge">1</span> 准备或导入资产数据</h4>
         <p>支持拖入或导入券商、Excel 导出的资产表。也可以直接点击下方按钮一键填充<b>「模拟演示数据」</b>进行功能探索。</p>
         <div style="margin-top:10px; display:flex; gap:6px;">
           <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="loadMockDemoData()">⚡ 填充演示数据</button>
@@ -413,38 +578,15 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
         </div>
       </div>
       <div class="sop-step">
-        <h5><span class="badge">2</span> 进行方法论分析与标记</h5>
+        <h4><span class="badge">2</span> 进行方法论分析与标记</h4>
         <p>展开<b>「资产明细与编辑」</b>，点击个股或基金，双击或点击「分析结论」在弹窗中录入基本面逻辑，并在「何刚风险红线」一栏对潜在风险（如治理风险、财务风险等）进行一票否决标记。</p>
       </div>
       <div class="sop-step">
-        <h5><span class="badge">3</span> 核对健康度并确认快照</h5>
+        <h4><span class="badge">3</span> 核对健康度并确认快照</h4>
         <p>通过<b>「待处理事项」</b>优先级列表、<b>「再平衡建议」</b>和<b>「估值监控」</b>发现红线和配置偏离。调整妥当后点击右上角<b>「确认快照」</b>建立日常比较基准，监控日内波动。</p>
       </div>
     </div>
   </details>
-
-  <div class="kpi-row" id="kpiRow"></div>
-  <div class="owner-row" id="ownerRow"></div>
-  <div id="focusPanel" class="focus-grid"></div>
-  <div class="chart-row">
-    <div class="chart-box"><h4>资产大类分布（合并）</h4><canvas id="chartAlloc"></canvas><div id="allocBars"></div></div>
-    <div class="chart-box"><h4>责任人占比</h4><canvas id="chartOwner"></canvas><div id="ownerShareBars"></div></div>
-  </div>
-  <div class="chart-row">
-    <div class="chart-box"><h4>参照标的贡献</h4><div id="exposureImpact"></div></div>
-    <div class="chart-box"><h4>待处理事项</h4><div id="actionItems"></div></div>
-  </div>
-  <details class="detail-disclosure">
-    <summary>资产明细与编辑 <span>默认收起，导入、调整和核对时再打开</span></summary>
-    <div class="sec-hdr" style="padding:0 16px 10px"><h3>全部资产明细</h3>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-success" onclick="addRow()">新增</button>
-      </div>
-    </div>
-    <div class="tbl-wrap"><table><thead id="tblHead"></thead><tbody id="tblBody"></tbody></table></div>
-  </details>
-  <div class="sec-hdr"><h3>再平衡建议（合并）</h3></div>
-  <div id="rebAll"></div>
 </div>
 
 <!-- ═══ OWNER A TAB ════════════════════════════════════════════════════ -->
@@ -483,6 +625,73 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
 </div>
 
+<!-- ═══ TRANSACTION LOG TAB ════════════════════════════════════════════ -->
+<div id="pane-log" class="tab-pane">
+  <div class="record-layout">
+    <section class="record-panel">
+      <h2>记一笔</h2>
+      <p class="record-help">用于记录现金、存款、理财等按金额维护的资产变化。基金或股票如果采用“份额 × 净值”估值，请在资产明细中更新份额。</p>
+      <div class="record-grid">
+        <div class="record-field">
+          <label for="txAction">变化类型</label>
+          <select id="txAction" onchange="updateTransactionForm()">
+            <option value="deposit">外部转入</option>
+            <option value="withdraw">外部转出</option>
+            <option value="income">收益或分红</option>
+            <option value="expense">费用或损失</option>
+            <option value="adjust">余额校准</option>
+          </select>
+        </div>
+        <div class="record-field">
+          <label for="txDate">发生日期</label>
+          <input id="txDate" type="date">
+        </div>
+        <div class="record-field full">
+          <label for="txAssetSelect">资产</label>
+          <select id="txAssetSelect" onchange="updateTransactionForm()"></select>
+        </div>
+        <div id="txNewAssetFields" class="record-field full" style="display:none">
+          <div class="record-grid">
+            <div class="record-field">
+              <label for="txOwner">责任人</label>
+              <select id="txOwner"><option>责任人 A</option><option>责任人 B</option></select>
+            </div>
+            <div class="record-field">
+              <label for="txCategory">资产大类</label>
+              <select id="txCategory"></select>
+            </div>
+            <div class="record-field full">
+              <label for="txAssetName">资产名称</label>
+              <input id="txAssetName" maxlength="80" placeholder="例如：工资卡、三年期存款">
+            </div>
+          </div>
+        </div>
+        <div class="record-field full">
+          <label id="txAmountLabel" for="txAmount">变化金额</label>
+          <input id="txAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+          <div id="txAmountHint" class="record-hint">转入会增加总资产，并计入较快照的外部资金变化。</div>
+        </div>
+        <div class="record-field full">
+          <label for="txNote">备注</label>
+          <textarea id="txNote" maxlength="200" placeholder="可选，例如：工资到账、赎回到银行卡"></textarea>
+        </div>
+      </div>
+      <div id="txValuationWarning" class="record-warning"></div>
+      <div class="record-actions">
+        <button class="btn btn-primary" onclick="recordTransaction()">确认记录</button>
+      </div>
+    </section>
+
+    <section class="record-panel">
+      <div class="tx-toolbar">
+        <div><h3>最近记录</h3><div class="record-hint">记录会随资产一起加密同步到云端。</div></div>
+        <button id="undoTxBtn" class="btn btn-ghost" onclick="undoLatestTransaction()">撤销最近一笔</button>
+      </div>
+      <div id="txHistoryList" class="tx-list"></div>
+    </section>
+  </div>
+</div>
+
 <!-- ═══ MARKET TAB ════════════════════════════════════════════════════ -->
 <div id="pane-market" class="tab-pane">
   <div class="market-tools">
@@ -517,7 +726,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   <div class="chart-box" style="margin-bottom:18px">
     <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">经典配置参考</h4>
     <div class="preset-grid" id="presetGrid"></div>
-    <div style="font-size:12px;color:#888">配置按钮会应用到合并、责任人 A、责任人 B 三组目标；合计不必强制 100%，系统会按权重归一化计算再平衡。</div>
+    <div style="font-size:12px;color:#64748b">配置按钮会应用到合并、责任人 A、责任人 B 三组目标；合计不必强制 100%，系统会按权重归一化计算再平衡。</div>
   </div>
   <div class="settings-grid">
 
@@ -571,7 +780,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
         <button class="btn btn-danger" onclick="clearAll()">清空数据</button>
       </div>
       <div id="cryptoSyncStatus" class="crypto-sync-status">云端加密资产：检测中</div>
-      <div style="font-size:12px;color:#888;margin-top:10px">这些操作属于偶尔维护，已从首页顶部下沉到设置页。</div>
+      <div style="font-size:12px;color:#64748b;margin-top:10px">这些操作属于偶尔维护，已从首页顶部下沉到设置页。</div>
     </div>
 
     <div class="chart-box">
@@ -591,11 +800,18 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
 </div>
 
+<nav id="bottomNav" aria-label="手机主导航">
+  <button class="bottom-nav-btn active" data-tab="overview" onclick="switchTab('overview')">总览</button>
+  <button class="bottom-nav-btn" data-tab="log" onclick="switchTab('log')">记一笔</button>
+  <button class="bottom-nav-btn" data-tab="market" onclick="switchTab('market')">监控</button>
+  <button class="bottom-nav-btn" data-tab="settings" onclick="switchTab('settings')">设置</button>
+</nav>
+
 <!-- Import Modal -->
 <div class="modal" id="importModal">
   <div class="modal-box">
     <h3>字段映射确认</h3>
-    <p style="font-size:13px;color:#888;margin-bottom:14px">
+    <p style="font-size:13px;color:#64748b;margin-bottom:14px">
       <span style="background:#fff4e6;color:#b45309;padding:1px 6px;border-radius:4px;font-weight:700">橙色</span> = 固定核心列 &nbsp;
       <span style="background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:4px;font-weight:700">蓝色</span> = 可选功能列 &nbsp;
       <span style="background:#f4f4f5;color:#52525b;padding:1px 6px;border-radius:4px;font-weight:700">灰色</span> = 自定义列
@@ -867,6 +1083,7 @@ const DEF_STATE = () => ({
   watchlist: [],
   quoteCache: {asOf:'', funds:{}, benchmarks:{}, securities:{}},
   snapshot: null,
+  transactions: [],
   cryptoSync: null,
   notesA: '', notesB: '',
   alertDown: 5, alertUp: 10
@@ -893,6 +1110,7 @@ function normalizeState(data){
   });
   next.extraFields = Array.isArray(next.extraFields) ? next.extraFields : [];
   next.watchlist = Array.isArray(next.watchlist) ? next.watchlist : [];
+  next.transactions = Array.isArray(next.transactions) ? next.transactions.slice(0,200) : [];
   const inputTargets = input.targets || {};
   next.targets = {};
   ['all','A','B'].forEach(scope=>{
@@ -1257,15 +1475,20 @@ async function loadRemoteEncryptedPortfolio(manual=false){
 // ══════════════════════════════════════════════════════════════
 //  TABS
 // ══════════════════════════════════════════════════════════════
-document.querySelectorAll('.tab-btn').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('pane-'+btn.dataset.tab).classList.add('active');
-    if(btn.dataset.tab==='market') fetchMarket();
+function switchTab(tab){
+  const pane = document.getElementById('pane-'+tab);
+  if(!pane) return;
+  document.querySelectorAll('.tab-btn').forEach(btn=>btn.classList.toggle('active', btn.dataset.tab===tab));
+  document.querySelectorAll('.bottom-nav-btn').forEach(btn=>{
+    const activeTab = tab==='ownerA'||tab==='ownerB' ? 'overview' : tab;
+    btn.classList.toggle('active', btn.dataset.tab===activeTab);
   });
-});
+  document.querySelectorAll('.tab-pane').forEach(item=>item.classList.toggle('active', item===pane));
+  if(tab==='market') fetchMarket();
+  if(tab==='log') renderTransactionPanel();
+  window.scrollTo({top:0,behavior:'auto'});
+}
+document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>switchTab(btn.dataset.tab)));
 
 // ══════════════════════════════════════════════════════════════
 //  TABLE RENDERING
@@ -1417,6 +1640,190 @@ function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
 });
 
 // ══════════════════════════════════════════════════════════════
+//  TRANSACTION LOG
+// ══════════════════════════════════════════════════════════════
+const TX_ACTIONS = {
+  deposit: {label:'外部转入', direction:1, kind:'external', hint:'转入会增加总资产，并计入较快照的外部资金变化。'},
+  withdraw:{label:'外部转出', direction:-1, kind:'external', hint:'转出会减少总资产，并计入较快照的外部资金变化。'},
+  income:  {label:'收益或分红', direction:1, kind:'performance', hint:'收益会增加资产金额，归入较快照的市场/收益变化。'},
+  expense: {label:'费用或损失', direction:-1, kind:'performance', hint:'费用会减少资产金额，归入较快照的市场/收益变化。'},
+  adjust:  {label:'余额校准', direction:0, kind:'adjustment', hint:'直接把资产改为指定余额，差额单独列为账务校准。'}
+};
+
+function transactionId(){
+  if(window.crypto && typeof crypto.randomUUID==='function') return crypto.randomUUID();
+  return 'tx_'+Date.now()+'_'+Math.random().toString(16).slice(2);
+}
+function isSharePricedRow(row){
+  if(!row || !(parseFloat(row.shares)>0)) return false;
+  return ['基金净值','导入净值','场内行情'].includes(getValuation(row).status);
+}
+function selectedTransactionRow(){
+  const select = document.getElementById('txAssetSelect');
+  if(!select || select.value==='__new__') return null;
+  const id = Number(select.value);
+  return S.rows.find(row=>Number(row.id)===id) || null;
+}
+function renderTransactionAssetOptions(){
+  const select = document.getElementById('txAssetSelect');
+  if(!select) return;
+  const previous = select.value;
+  const options = S.rows.slice().sort((a,b)=>{
+    const ownerDiff = String(a.owner||'').localeCompare(String(b.owner||''),'zh-CN');
+    return ownerDiff || String(a.name||'').localeCompare(String(b.name||''),'zh-CN');
+  }).map(row=>`<option value="${Number(row.id)}">${escHtml(row.owner||'未分配')} · ${escHtml(row.name||'未命名资产')}</option>`);
+  select.innerHTML = options.join('')+'<option value="__new__">+ 新建按金额维护的资产</option>';
+  if([...select.options].some(option=>option.value===previous)) select.value = previous;
+  else if(!S.rows.length) select.value = '__new__';
+}
+function updateTransactionForm(){
+  const actionKey = document.getElementById('txAction').value;
+  const action = TX_ACTIONS[actionKey] || TX_ACTIONS.deposit;
+  const row = selectedTransactionRow();
+  const isNew = document.getElementById('txAssetSelect').value==='__new__';
+  document.getElementById('txNewAssetFields').style.display = isNew ? 'block' : 'none';
+  document.getElementById('txAmountLabel').textContent = actionKey==='adjust' ? '校准后余额' : '变化金额';
+  document.getElementById('txAmountHint').textContent = action.hint;
+  const warning = document.getElementById('txValuationWarning');
+  let warningText = '';
+  if(row && isSharePricedRow(row)){
+    warningText = '该资产当前按“份额 × 净值/现价”估值。为避免金额口径冲突，请到资产明细更新持有数量；记一笔不会直接修改这类资产。';
+  }else if(isNew && !['deposit','adjust'].includes(actionKey)){
+    warningText = '新资产只能通过“外部转入”或“余额校准”建立，其他变化类型必须选择已有资产。';
+  }
+  warning.textContent = warningText;
+  warning.classList.toggle('show', Boolean(warningText));
+}
+function resetTransactionForm(){
+  document.getElementById('txAmount').value = '';
+  document.getElementById('txNote').value = '';
+  document.getElementById('txAssetName').value = '';
+  renderTransactionAssetOptions();
+  updateTransactionForm();
+}
+function recordTransaction(){
+  const actionKey = document.getElementById('txAction').value;
+  const action = TX_ACTIONS[actionKey];
+  const amountRaw = document.getElementById('txAmount').value;
+  const amount = Number(amountRaw);
+  if(!action) return;
+  if(!Number.isFinite(amount) || amount<0 || (actionKey!=='adjust' && amount<=0)){
+    toast(actionKey==='adjust' ? '请输入有效的校准后余额' : '请输入大于 0 的变化金额');
+    return;
+  }
+
+  let row = selectedTransactionRow();
+  let createdAsset = false;
+  if(!row){
+    if(!['deposit','adjust'].includes(actionKey)){
+      toast('新资产只能使用外部转入或余额校准建立');
+      return;
+    }
+    if(amount<=0){
+      toast('新资产的初始余额必须大于 0');
+      return;
+    }
+    const name = document.getElementById('txAssetName').value.trim();
+    const owner = normalizeOwner(document.getElementById('txOwner').value);
+    if(!name){ toast('请输入新资产名称'); return; }
+    row = {id:S.nextId++,owner,name,cat:normalizeCategory(document.getElementById('txCategory').value),amount:0,code:'',shares:'',cost:'',nav:'',benchmark:'',note:'',redline:'无',analysisNote:'',extra:{}};
+    S.rows.push(row);
+    createdAsset = true;
+  }
+  if(isSharePricedRow(row)){
+    if(createdAsset) S.rows = S.rows.filter(item=>item!==row);
+    toast('该资产按份额估值，请在资产明细更新持有数量');
+    return;
+  }
+
+  const beforeAmount = Number(row.amount)||0;
+  let afterAmount = actionKey==='adjust' ? amount : beforeAmount + action.direction*amount;
+  if(afterAmount < -0.005){
+    if(createdAsset) S.rows = S.rows.filter(item=>item!==row);
+    toast('变化金额超过当前余额，资产不能被扣成负数');
+    return;
+  }
+  afterAmount = Math.max(0, Math.round(afterAmount*100)/100);
+  const deltaAmount = Math.round((afterAmount-beforeAmount)*100)/100;
+  row.amount = afterAmount;
+  const occurredOn = document.getElementById('txDate').value || new Date().toISOString().slice(0,10);
+  const tx = {
+    id:transactionId(),
+    timestamp:new Date().toISOString(),
+    occurredOn,
+    action:actionKey,
+    owner:row.owner,
+    assetId:row.id,
+    assetName:row.name,
+    category:normalizeCategory(row.cat),
+    amount,
+    deltaAmount,
+    beforeAmount,
+    afterAmount,
+    flowImpact:action.kind==='external' ? deltaAmount : 0,
+    adjustmentImpact:action.kind==='adjustment' ? deltaAmount : 0,
+    createdAsset,
+    note:document.getElementById('txNote').value.trim()
+  };
+  S.transactions.unshift(tx);
+  S.transactions = S.transactions.slice(0,200);
+  save();
+  renderAll();
+  resetTransactionForm();
+  toast('已记录：'+action.label+' '+row.name+' '+fmtSigned(deltaAmount));
+}
+function renderTransactionHistory(){
+  const el = document.getElementById('txHistoryList');
+  const undoBtn = document.getElementById('undoTxBtn');
+  if(!el) return;
+  const transactions = Array.isArray(S.transactions) ? S.transactions : [];
+  if(undoBtn) undoBtn.disabled = !transactions.length;
+  if(!transactions.length){
+    el.innerHTML = '<div class="decision-empty">暂无记录。这里的记录会随加密资产一起跨设备同步。</div>';
+    return;
+  }
+  el.innerHTML = transactions.slice(0,30).map(tx=>{
+    const action = TX_ACTIONS[tx.action] || {label:'资产调整'};
+    const delta = Number(tx.deltaAmount)||0;
+    const cls = delta>0?'positive':delta<0?'negative':'neutral';
+    const when = [tx.occurredOn, tx.owner].filter(Boolean).join(' · ');
+    return `<div class="tx-row">
+      <div class="tx-type">${escHtml(action.label)}</div>
+      <div class="tx-main"><b>${escHtml(tx.assetName||'未命名资产')}</b><span>${escHtml(when)}${tx.note?' · '+escHtml(tx.note):''}</span></div>
+      <div class="tx-amount ${cls}">${fmtSigned(delta)}</div>
+    </div>`;
+  }).join('');
+}
+function renderTransactionPanel(){
+  const category = document.getElementById('txCategory');
+  if(category && !category.options.length) category.innerHTML = CATS.map(cat=>`<option>${cat}</option>`).join('');
+  const date = document.getElementById('txDate');
+  if(date && !date.value) date.value = new Date().toISOString().slice(0,10);
+  renderTransactionAssetOptions();
+  updateTransactionForm();
+  renderTransactionHistory();
+}
+function undoLatestTransaction(){
+  const tx = S.transactions && S.transactions[0];
+  if(!tx){ toast('暂无可撤销记录'); return; }
+  const row = S.rows.find(item=>Number(item.id)===Number(tx.assetId));
+  if(!row || row.owner!==tx.owner || row.name!==tx.assetName || Math.abs((Number(row.amount)||0)-Number(tx.afterAmount))>0.005){
+    alert('无法安全撤销：这笔记录之后资产已被导入或手动修改。请在资产明细中核对。');
+    return;
+  }
+  if(tx.createdAsset){
+    S.rows = S.rows.filter(item=>item!==row);
+  }else{
+    row.amount = Number(tx.beforeAmount)||0;
+  }
+  S.transactions.shift();
+  save();
+  renderAll();
+  renderTransactionPanel();
+  toast('已撤销最近一笔记录');
+}
+
+// ══════════════════════════════════════════════════════════════
 //  CHARTS
 // ══════════════════════════════════════════════════════════════
 function buildChartData(rows){
@@ -1549,9 +1956,14 @@ function buildExposureGroups(){
 
 function getSnapshotDelta(){
   const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  if(!S.snapshot || !S.snapshot.total) return {has:false,total:totalVal,diff:0,pct:0,label:'尚未确认快照',ts:''};
+  if(!S.snapshot || !Number.isFinite(Number(S.snapshot.total))) return {has:false,total:totalVal,diff:0,pct:0,label:'尚未确认快照',ts:'',externalFlow:0,adjustment:0,marketImpact:0};
   const diff = totalVal - S.snapshot.total;
-  return {has:true,total:totalVal,diff,pct:S.snapshot.total?diff/S.snapshot.total*100:0,label:'较上次快照',ts:S.snapshot.ts||''};
+  const snapshotTime = new Date(S.snapshot.ts||0).getTime();
+  const recent = (S.transactions||[]).filter(tx=>new Date(tx.timestamp||0).getTime()>snapshotTime);
+  const externalFlow = recent.reduce((sum,tx)=>sum+(Number(tx.flowImpact)||0),0);
+  const adjustment = recent.reduce((sum,tx)=>sum+(Number(tx.adjustmentImpact)||0),0);
+  const marketImpact = diff-externalFlow-adjustment;
+  return {has:true,total:totalVal,diff,pct:S.snapshot.total?diff/S.snapshot.total*100:0,label:'较上次快照',ts:S.snapshot.ts||'',externalFlow,adjustment,marketImpact};
 }
 function getValuationIssue(row, valuation=getValuation(row)){
   const cat = normalizeCategory(row.cat);
@@ -1721,10 +2133,10 @@ function renderActionItems(){
   return summaryBadges + '<div class="alloc-list">'+shown.map(item=>`
     <div class="alloc-row" style="grid-template-columns:150px 1fr 85px; align-items:center; gap:12px;">
       <div>
-        <span style="font-size:10px;text-transform:uppercase;color:#64748b;display:block;margin-bottom:2px;">${item.tier || 'RULE'}</span>
-        <div class="alloc-name" style="font-weight:600;font-size:13px;white-space:normal;">${item.title}</div>
+        <span style="font-size:10px;text-transform:uppercase;color:#64748b;display:block;margin-bottom:2px;">${escHtml(item.tier || '规则')}</span>
+        <div class="alloc-name" style="font-weight:600;font-size:13px;white-space:normal;">${escHtml(item.title)}</div>
       </div>
-      <div style="font-size:12px;color:#475569;line-height:1.4;">${item.detail}</div>
+      <div style="font-size:12px;color:#475569;line-height:1.4;">${escHtml(item.detail)}</div>
       <div class="status-pill ${item.level}" style="text-align:center;">
         ${item.level === 'risk' ? '一票否决' : 
           item.level === 'warn' ? '补齐数据' : 
@@ -1732,6 +2144,85 @@ function renderActionItems(){
           item.level === 'review' ? '大类偏离' : '观察/复核'}
       </div>
     </div>`).join('')+'</div>';
+}
+
+function renderEmptyState(){
+  const empty = document.getElementById('emptyPortfolioState');
+  const content = document.getElementById('portfolioContent');
+  const hasRows = S.rows.length>0;
+  if(empty) empty.classList.toggle('show', !hasRows);
+  if(content) content.classList.toggle('is-hidden', !hasRows);
+}
+function renderDecisionOverview(){
+  const totalVal = S.rows.reduce((sum,row)=>sum+getRowValue(row),0);
+  const stats = getValuationQualityStats();
+  const snap = getSnapshotDelta();
+  const totalEl = document.getElementById('decisionTotal');
+  const totalSub = document.getElementById('decisionTotalSub');
+  const deltaEl = document.getElementById('decisionDelta');
+  const deltaSub = document.getElementById('decisionDeltaSub');
+  const breakdown = document.getElementById('decisionBreakdown');
+  const coverage = document.getElementById('decisionCoverage');
+  const coverageSub = document.getElementById('decisionCoverageSub');
+  if(totalEl) totalEl.textContent = fmt(totalVal);
+  if(totalSub) totalSub.textContent = `${S.rows.length} 条资产 · 行情缓存 ${S.quoteCache&&S.quoteCache.asOf?S.quoteCache.asOf:'未获取'}`;
+  if(deltaEl){
+    deltaEl.className = 'decision-value '+(snap.has?(snap.diff>0?'rise':snap.diff<0?'fall':'flat'):'flat');
+    deltaEl.textContent = snap.has ? fmtSigned(snap.diff) : '待确认快照';
+  }
+  if(deltaSub) deltaSub.textContent = snap.has ? `${snap.pct>=0?'+':''}${snap.pct.toFixed(2)}% · 上次 ${fmtDateTime(snap.ts)}` : '确认一次快照后，后续变化才有可信比较基准。';
+  if(breakdown){
+    breakdown.innerHTML = snap.has ? `
+      <div><span>外部资金</span><b>${fmtSigned(snap.externalFlow)}</b></div>
+      <div><span>账务校准</span><b>${fmtSigned(snap.adjustment)}</b></div>
+      <div><span>市场/收益</span><b>${fmtSigned(snap.marketImpact)}</b></div>
+      <div><span>合计变化</span><b>${fmtSigned(snap.diff)}</b></div>` : '';
+  }
+  if(coverage){
+    coverage.className = 'decision-value '+(stats.missing?'warn':'flat');
+    coverage.textContent = stats.total ? stats.coverage+'%' : '—';
+  }
+  if(coverageSub) coverageSub.textContent = stats.total ? `${stats.usable}/${stats.total} 条可进入同步金额${stats.missing?'，'+stats.missing+' 条待补数据':'，当前无关键缺口'}` : '先导入资产或加载云端数据';
+}
+function renderAttentionSummary(){
+  const el = document.getElementById('attentionSummary');
+  if(!el) return;
+  const order = {risk:0,warn:1,adjust:2,review:3,observe:4};
+  const items = buildActionItems().sort((a,b)=>(order[a.level]??99)-(order[b.level]??99));
+  const relevant = items.filter(item=>item.level!=='observe').slice(0,4);
+  if(!relevant.length){
+    el.innerHTML = '<div class="decision-empty">暂无风险红线、关键估值缺口或明显配置偏离。</div>';
+    return;
+  }
+  const labels = {risk:'风险红线',warn:'数据缺口',adjust:'组合超限',review:'配置偏离'};
+  el.innerHTML = '<div class="decision-list">'+relevant.map(item=>`
+    <div class="decision-item">
+      <div class="kind">${escHtml(labels[item.level]||item.tier||'关注')}</div>
+      <div class="main"><b>${escHtml(item.title)}</b>${escHtml(item.detail)}</div>
+      <span class="status-pill ${item.level}">${item.level==='risk'?'立即复核':'待处理'}</span>
+    </div>`).join('')+'</div>';
+}
+function openOverviewDetails(){
+  switchTab('overview');
+  const details = document.querySelector('#pane-overview .detail-disclosure');
+  if(details) details.open = true;
+}
+function renderNextActionSummary(){
+  const el = document.getElementById('nextActionSummary');
+  if(!el) return;
+  const quality = getValuationQualityStats();
+  const items = buildActionItems();
+  const actions = [];
+  if(items.some(item=>item.level==='risk')) actions.push({title:'复核风险红线资产',detail:'先看分析结论和退出计划，暂停新增暴露。',label:'打开明细',onclick:'openOverviewDetails()'});
+  if(quality.missing) actions.push({title:`补齐 ${quality.missing} 条估值依据`,detail:'优先处理基金净值、指数涨跌或交易所行情缺口。',label:'去监控',onclick:"switchTab('market')"});
+  if(!S.snapshot) actions.push({title:'建立日常比较基准',detail:'确认当前同步金额为快照，后续变化会拆分外部资金和市场收益。',label:'确认快照',onclick:'saveSnap()'});
+  if(items.some(item=>item.level==='adjust'||item.level==='review')) actions.push({title:'复核目标配置',detail:'目标不必等于 100%，系统会按当前权重归一化计算。',label:'去设置',onclick:"switchTab('settings')"});
+  if(!actions.length) actions.push({title:'组合暂无紧急事项',detail:'有资金进出、收益或余额变化时直接记一笔。',label:'记一笔',onclick:"switchTab('log')"});
+  el.innerHTML = actions.slice(0,3).map(action=>`
+    <div class="next-action">
+      <div><b>${escHtml(action.title)}</b><p>${escHtml(action.detail)}</p></div>
+      <button class="btn btn-ghost" onclick="${action.onclick}">${escHtml(action.label)}</button>
+    </div>`).join('');
 }
 
 function renderExposureImpact(){
@@ -1839,12 +2330,12 @@ function renderOwnerRow(){
   const totA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A').reduce((s,r)=>s+getRowValue(r),0);
   const totB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B').reduce((s,r)=>s+getRowValue(r),0);
   el.innerHTML = [
-    {name:'责任人 A', amt:totA, pct:tot?totA/tot*100:0},
-    {name:'责任人 B', amt:totB, pct:tot?totB/tot*100:0},
-  ].map(o=>`<div class="owner-card">
+    {name:'责任人 A', tab:'ownerA', amt:totA, pct:tot?totA/tot*100:0},
+    {name:'责任人 B', tab:'ownerB', amt:totB, pct:tot?totB/tot*100:0},
+  ].map(o=>`<div class="owner-card actionable" role="button" tabindex="0" onclick="switchTab('${o.tab}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchTab('${o.tab}')}" aria-label="查看${o.name}">
     <div class="name">${o.name}</div>
     <div class="amount">${fmt(o.amt)}</div>
-    <div class="pct">占总资产 ${fmtPct(o.pct)}</div>
+    <div class="pct">占总资产 ${fmtPct(o.pct)} · 查看明细</div>
   </div>`).join('');
 }
 
@@ -1949,6 +2440,10 @@ function renderAll(light=false){
   renderKPI('kpiRow',  S.rows, '合并');
   renderKPI('kpiRowA', rowsA,  '责任人 A');
   renderKPI('kpiRowB', rowsB,  '责任人 B');
+  renderEmptyState();
+  renderDecisionOverview();
+  renderAttentionSummary();
+  renderNextActionSummary();
   renderOwnerRow();
   renderFocusPanel();
 
@@ -1982,6 +2477,7 @@ function renderAll(light=false){
   renderValuationIssues();
   renderMarketExposureList();
   renderValuationGrid();
+  renderTransactionPanel();
 
   if(!light){
     renderSliders();
@@ -2000,6 +2496,7 @@ function renderAll(light=false){
 //  SNAPSHOT & ALERT
 // ══════════════════════════════════════════════════════════════
 function saveSnap(){
+  if(!S.rows.length){ toast('当前没有资产，无法确认快照'); return; }
   const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
   S.snapshot = {total:tot, ts:new Date().toISOString()};
   save(); renderAll(); toast('快照已确认：'+fmt(tot));
@@ -2036,7 +2533,7 @@ function addRow(owner){
 // ══════════════════════════════════════════════════════════════
 function clearAll(){
   if(!confirm('确认清空所有资产数据？（此操作不可撤销）')) return;
-  S.rows=[];S.extraFields=[];S.nextId=1;S.snapshot=null;
+  S.rows=[];S.extraFields=[];S.nextId=1;S.snapshot=null;S.transactions=[];
   save(); renderAll();
   toast('数据已清空');
 }
