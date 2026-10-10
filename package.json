@@ -1,13 +1,11 @@
 {
-  "name": "fund-manager-private-dashboard",
-  "version": "0.1.0",
+  "name": "asset-cockpit",
+  "version": "1.0.0",
   "private": true,
-  "description": "Private fund management dashboard with daily quote cache and GitHub Pages publishing.",
+  "description": "个人资产驾驶舱：纯前端工作台 + 每日自动抓行情，发布在 GitHub Pages。",
   "type": "commonjs",
   "scripts": {
-    "build": "node scripts/build_site.js",
-    "sync:quotes": "node scripts/sync_quotes.js",
-    "check": "node scripts/check_html.js"
+    "sync:quotes": "node scripts/sync_quotes.js"
   },
   "engines": {
     "node": ">=20"

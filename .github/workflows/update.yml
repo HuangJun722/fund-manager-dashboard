@@ -1,17 +1,16 @@
-name: Update Fund Dashboard
+name: Update Asset Cockpit Quotes
 
 concurrency:
-  group: fund-dashboard-pages
+  group: asset-cockpit-pages
   cancel-in-progress: true
 
 on:
   schedule:
-    # 18:30 Asia/Shanghai, Monday-Friday. The script also skips weekends.
-    - cron: "30 10 * * 1-5"
+    # 每天 18:30（北京时间）抓一次行情
+    - cron: "30 10 * * *"
   push:
     branches: [main]
     paths:
-      - "fund_manager_v4.html"
       - "scripts/*.js"
       - "config/*.json"
       - ".github/workflows/*.yml"
@@ -35,23 +34,17 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Check HTML
-        run: node scripts/check_html.js
-
-      - name: Sync quote cache
+      - name: Sync quotes
         run: node scripts/sync_quotes.js
-
-      - name: Build GitHub Pages site
-        run: node scripts/build_site.js
 
       - name: Verify output
         run: |
           if [ ! -f "docs/index.html" ]; then
-            echo "ERROR: docs/index.html not generated"
+            echo "ERROR: docs/index.html missing"
             exit 1
           fi
-          if [ ! -f "docs/data/quotes_cache_latest.json" ]; then
-            echo "ERROR: docs/data/quotes_cache_latest.json not generated"
+          if [ ! -f "docs/data/quotes.json" ]; then
+            echo "ERROR: docs/data/quotes.json missing"
             exit 1
           fi
           SIZE=$(wc -c < docs/index.html)
@@ -65,11 +58,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/quotes_cache_latest.json docs/
+          git add docs/data/quotes.json
           if git diff --cached --quiet; then
             echo "No changes"
           else
-            git commit -m "Update fund dashboard $(TZ=Asia/Shanghai date +%Y-%m-%d\ %H:%M)"
+            git commit -m "Update quotes $(TZ=Asia/Shanghai date +%Y-%m-%d\ %H:%M)"
             git push
           fi
-

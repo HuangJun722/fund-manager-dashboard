@@ -1,115 +1,144 @@
+// 每天抓一次公开行情：场内用腾讯行情，场外基金净值用天天基金。
+// 输出 docs/data/quotes.json，页面自动读取。不碰任何账户，不需要登录。
 const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const configPath = path.join(root, 'config', 'market_watch.json');
-const outputPath = path.join(root, 'data', 'quotes_cache_latest.json');
+const configPath = path.join(root, 'config', 'quotes.json');
+const outputPath = path.join(root, 'docs', 'data', 'quotes.json');
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36';
 
 function todayInShanghai() {
-  return new Date(new Date().toLocaleString('en-US', {timeZone: 'Asia/Shanghai'}));
-}
-
-function isWeekday(date) {
-  const day = date.getDay();
-  return day >= 1 && day <= 5;
+  const s = new Date().toLocaleString('sv-SE', {timeZone: 'Asia/Shanghai'});
+  return s.slice(0, 10);
 }
 
 function readJson(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
+  } catch (e) {
     return fallback;
   }
 }
 
-async function fetchTencentQuotes(codes) {
-  if (!codes.length) return {};
-  const url = `https://qt.gtimg.cn/q=${codes.join(',')}&_=${Date.now()}`;
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'fund-manager-daily-cache/0.1'
-    }
-  });
-  if (!response.ok) {
-    throw new Error(`Tencent quote request failed: ${response.status}`);
+function decodeBody(buffer) {
+  try {
+    return new TextDecoder('gbk').decode(buffer);
+  } catch (e) {
+    return Buffer.from(buffer).toString('utf8');
   }
-  const text = await response.text();
-  const quotes = {};
-  for (const code of codes) {
-    const match = text.match(new RegExp(`v_${code}="([^"]*)"`));
-    if (!match) continue;
-    const parts = match[1].split('~');
-    quotes[code] = {
-      name: parts[1] || code,
-      price: Number.parseFloat(parts[3]) || 0,
-      chgPct: Number.parseFloat(parts[32]) || 0
-    };
-  }
-  return quotes;
 }
+
+async function get(url, headers) {
+  const res = await fetch(url, {headers: Object.assign({'User-Agent': UA}, headers || {})});
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res;
+}
+
+// 腾讯行情：一次可以查多个代码，返回 GBK 文本
+async function fetchTencent(codes) {
+  if (!codes.length) return {};
+  const res = await get('https://qt.gtimg.cn/q=' + codes.join(',') + '&_=' + Date.now(), {Referer: 'https://gu.qq.com/'});
+  const text = decodeBody(Buffer.from(await res.arrayBuffer()));
+  const out = {};
+  const re = /v_([a-zA-Z0-9_]+)="([^"]*)"/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const parts = m[2].split('~');
+    const price = parseFloat(parts[3]);
+    if (!isNaN(price) && price > 0) {
+      out[m[1]] = {
+        name: parts[1] || m[1],
+        price: price,
+        chgPct: parseFloat(parts[32]) || 0,
+        asOf: (parts[30] || '').slice(0, 8)
+      };
+    }
+  }
+  return out;
+}
+
+// 天天基金历史净值：取最新一天的单位净值
+async function fetchFund(code) {
+  const url = 'https://api.fund.eastmoney.com/f10/lsjz?fundCode=' + code + '&pageIndex=1&pageSize=1';
+  const res = await get(url, {Referer: 'http://fundf10.eastmoney.com/'});
+  const j = await res.json();
+  const item = j && j.Data && j.Data.LSJZList && j.Data.LSJZList[0];
+  if (!item) return null;
+  const price = parseFloat(item.DWJZ);
+  if (isNaN(price) || price <= 0) return null;
+  return {price: price, asOf: item.FSRQ};
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function main() {
-  const now = todayInShanghai();
-  const asOf = now.toISOString().slice(0, 10);
-  const force = process.env.FORCE_SYNC === '1';
+  const asOf = todayInShanghai();
+  const config = readJson(configPath, {benchmarks: [], securities: [], funds: []});
+  const previous = readJson(outputPath, {quotes: {}, benchmarks: {}});
+  const quotes = Object.assign({}, previous.quotes || {});
+  const benchmarks = Object.assign({}, previous.benchmarks || {});
 
-  if (!force && !isWeekday(now)) {
-    console.log(`skip quote sync on non-weekday: ${asOf}`);
-    return;
+  // 1) 场内（指数基准 + ETF/股票）
+  const marketCodes = [].concat(
+    (config.benchmarks || []).map(x => x.code),
+    (config.securities || []).map(x => x.code)
+  ).filter(Boolean);
+  let market = {};
+  try {
+    market = await fetchTencent(marketCodes);
+  } catch (e) {
+    console.log('腾讯行情抓取失败：' + e.message);
   }
+  (config.benchmarks || []).forEach(b => {
+    const q = market[b.code];
+    if (q) benchmarks[b.name] = {name: b.name, price: q.price, chgPct: q.chgPct, asOf: q.asOf || asOf};
+  });
+  (config.securities || []).forEach(s => {
+    const q = market[s.code];
+    if (!q) return;
+    const bare = String(s.code).replace(/^(sh|sz|hk|us)/i, ''); // 页面里的持仓代码不带前缀
+    quotes[bare] = {name: s.name, price: q.price, chgPct: q.chgPct, asOf: q.asOf || asOf};
+  });
 
-  const config = readJson(configPath, {benchmarks: [], securities: [], funds: {}});
-  const previous = readJson(outputPath, {funds: {}, benchmarks: {}, securities: {}});
-  const benchmarkList = Array.isArray(config.benchmarks) ? config.benchmarks : [];
-  const securityList = Array.isArray(config.securities) ? config.securities : [];
-  const codes = [...new Set([...benchmarkList, ...securityList].map(item => item.code).filter(Boolean))];
-  const quotes = await fetchTencentQuotes(codes);
-
-  const latest = {
-    asOf,
-    source: 'tencent-qt.gtimg.cn',
-    generatedAt: now.toISOString(),
-    funds: {...(previous.funds || {}), ...(config.funds || {})},
-    benchmarks: {},
-    securities: {}
-  };
-
-  for (const item of benchmarkList) {
-    const quote = quotes[item.code];
-    if (quote) {
-      latest.benchmarks[item.name] = {
-        name: item.name,
-        price: quote.price,
-        chgPct: quote.chgPct,
-        asOf
-      };
-    } else if (previous.benchmarks && previous.benchmarks[item.name]) {
-      latest.benchmarks[item.name] = previous.benchmarks[item.name];
+  // 2) 场外基金净值（串行，避免被限流）
+  let ok = 0;
+  for (const f of (config.funds || [])) {
+    // 货币基金净值恒为 1，收益体现为份额增加；接口返回的值不可信，直接按 1 处理
+    if (f.type === 'money') {
+      quotes[f.code] = {name: f.name, price: 1, asOf: asOf};
+      ok++;
+      continue;
     }
-  }
-
-  for (const item of securityList) {
-    const code = String(item.code || '').trim().toLowerCase();
-    const quote = quotes[code];
-    if (quote) {
-      latest.securities[code] = {
-        name: item.name || quote.name || code,
-        price: quote.price,
-        chgPct: quote.chgPct,
-        asOf
-      };
-    } else if (previous.securities && previous.securities[code]) {
-      latest.securities[code] = previous.securities[code];
+    try {
+      const q = await fetchFund(f.code);
+      if (!q) {
+        console.log('无净值：' + f.code + ' ' + f.name);
+        await sleep(300);
+        continue;
+      }
+      const prev = quotes[f.code];
+      // 异常保护：与上次相比涨跌超过 50%，多半是接口脏数据，保留上次的值
+      if (prev && prev.price > 0 && Math.abs(q.price - prev.price) / prev.price > 0.5) {
+        console.log('净值异常，保留上次：' + f.code + ' ' + f.name + ' 新=' + q.price + ' 旧=' + prev.price);
+      } else {
+        quotes[f.code] = {name: f.name, price: q.price, asOf: q.asOf};
+        ok++;
+      }
+    } catch (e) {
+      console.log('基金抓取失败 ' + f.code + '：' + e.message);
     }
+    await sleep(300);
   }
 
+  const result = {date: asOf, generatedAt: new Date().toISOString(), quotes: quotes, benchmarks: benchmarks};
   fs.mkdirSync(path.dirname(outputPath), {recursive: true});
-  fs.writeFileSync(outputPath, `${JSON.stringify(latest, null, 2)}\n`, 'utf8');
-  console.log(`updated quote cache: ${outputPath}`);
+  fs.writeFileSync(outputPath, JSON.stringify(result, null, 2) + '\n', 'utf8');
+  console.log('行情已更新 ' + asOf + '：场内 ' + Object.keys(market).length + ' 条，基金 ' + ok + ' 条，quotes 合计 ' + Object.keys(quotes).length);
 }
 
-main().catch(error => {
-  console.error(error);
+main().catch(e => {
+  console.error(e);
   process.exit(1);
 });
-

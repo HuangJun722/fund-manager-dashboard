@@ -1,2986 +1,1063 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>家庭资金治理台 v4.5</title>
-<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script>
-// ═══ QUICK WINS: DATA & RESPONSIVE IMPROVEMENTS ══════════════════════
-let activeEditingRowId = null;
-
-function downloadCSVTemplate() {
-  const headers = ["归属责任人", "资产名称", "资产大类", "当前金额", "行情代码", "持有数量", "买入成本", "单位净值", "何刚风险红线", "分析结论", "备注"];
-  const rows = [
-    ["责任人 A", "腾讯控股", "股票", "150000", "hk00700", "400", "320", "385.4", "无", "符合HALO商业模式，现金流强劲", "核心成长"],
-    ["责任人 A", "沪深300ETF", "基金/ETF", "250000", "sh510300", "62500", "3.8", "4.02", "无", "大盘宽基底层防守", "定投底仓"],
-    ["责任人 B", "招商银行", "股票", "80000", "sh600036", "2500", "28", "32.1", "无", "高股息资产复核，资本充足率高", "收息红利股"],
-    ["责任人 B", "某垃圾股B", "股票", "12000", "sh600000", "1000", "15", "12", "财务风险", "销售费用畸高且大股东质押过高，一票否决", "警惕雷区"]
-  ];
-  const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '家庭资金治理台_资产导入模板.csv';
-  a.click();
-  toast('标准 CSV 导入模板已下载');
-}
-
-function loadMockDemoData() {
-  const demoRows = [
-    { id: 1, owner: '责任人 A', name: '腾讯控股', cat: '股票', amount: 150000, code: 'hk00700', shares: 400, cost: 320, nav: 385.4, redline: '无', analysisNote: '符合HALO经典选股规则，行业壁垒深厚。', note: '核心成长底仓', extra: {} },
-    { id: 2, owner: '责任人 A', name: '华夏沪深300ETF联接Y', cat: '基金/ETF', amount: 250000, code: '022983', shares: 133448, cost: 1.81, nav: 1.8734, redline: '无', analysisNote: '宽基稳健型配置，提供底层流动性保护。', note: '长线底仓', extra: {} },
-    { id: 3, owner: '责任人 A', name: '长江电力', cat: '股票', amount: 95000, code: 'sh600900', shares: 3200, cost: 24.5, nav: 29.68, redline: '无', analysisNote: '高股息现金奶牛，公用事业防守典范。', note: '高股息防守', extra: {} },
-    { id: 4, owner: '责任人 A', name: '招商双债增强债券C', cat: '固收/理财', amount: 120000, code: '', shares: '', cost: '', nav: '', redline: '无', analysisNote: '固收补充资产，平摊波动。', note: '稳健固收', extra: {} },
-    { id: 5, owner: '责任人 B', name: '招商银行', cat: '股票', amount: 110000, code: 'sh600036', shares: 3400, cost: 28.5, nav: 32.35, redline: '无', analysisNote: '基本面稳固的高股息金融蓝筹。', note: '红利防守', extra: {} },
-    { id: 6, owner: '责任人 B', name: '某涉嫌造假问题股', cat: '股票', amount: 25000, code: 'sz000002', shares: 2000, cost: 15.2, nav: 12.5, redline: '财务风险', analysisNote: '销售费用极度反常，存贷双高，启动红线警报。', note: '问题持仓', extra: {} },
-    { id: 7, owner: '责任人 B', name: '纳斯达克100ETF', cat: '基金/ETF', amount: 160000, code: 'sz159941', shares: 51282, cost: 2.85, nav: 3.12, redline: '无', analysisNote: '全球科技龙头核心暴露，分散单一市场风险。', note: '全球配置', extra: {} },
-    { id: 8, owner: '责任人 B', name: '微信余额宝', cat: '现金/存款', amount: 150000, code: '', shares: '', cost: '', nav: '', redline: '无', analysisNote: '随时可动用的应急备用金。', note: '超强流动性', extra: {} },
-    { id: 9, owner: '责任人 B', name: '微众银行大额存单', cat: '现金/存款', amount: 200000, code: '', shares: '', cost: '', nav: '', redline: '无', analysisNote: '5年期锁定存单，锁死底层无风险利率。', note: '锁定收益', extra: {} }
-  ];
-  S.rows = demoRows;
-  S.nextId = 10;
-  S.transactions = [];
-  S.snapshot = null;
-  save();
-  renderAll();
-  toast('已成功导入9条高度真实的模拟演示资产数据！');
-  setTimeout(fetchMarket, 400);
-}
-
-function openNoteEditModal(el) {
-  activeEditingRowId = parseInt(el.dataset.rowId, 10);
-  document.getElementById('noteEditModalTitle').textContent = `编辑【${el.dataset.assetName || '未命名资产'}】的分析结论`;
-  document.getElementById('noteEditModalTextarea').value = el.dataset.analysisNote || '';
-  document.getElementById('noteEditModal').classList.add('open');
-}
-
-function closeNoteEditModal() {
-  document.getElementById('noteEditModal').classList.remove('open');
-  activeEditingRowId = null;
-}
-
-function confirmNoteEditModal() {
-  if (activeEditingRowId !== null) {
-    const val = document.getElementById('noteEditModalTextarea').value;
-    const row = S.rows.find(r => r.id === activeEditingRowId);
-    if (row) {
-      row.analysisNote = val;
-      save();
-      renderAll(true);
-      toast('分析结论已成功保存');
-    }
-  }
-  closeNoteEditModal();
-}
-</script>
-<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>资产驾驶舱</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#f7f8fa;color:#1f2933;font-size:14px}
-/* ── Top bar ── */
-#topbar{background:#172033;color:#f8fafc;padding:0 20px;height:54px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(15,23,42,.24)}
-#topbar h1{font-size:17px;font-weight:700;letter-spacing:.5px}
-#topbar .actions{display:flex;gap:8px;align-items:center}
-.snapshot-info{font-size:12px;color:#cbd5e1;white-space:nowrap}
-/* ── Alert banner ── */
-#alertBanner{display:none;background:#ff4d4f;color:#fff;padding:8px 20px;font-size:13px;text-align:center;position:relative}
-#alertTxt{display:block;padding:0 28px;line-height:1.35}
-#alertBanner .alert-close{cursor:pointer;position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:18px;line-height:1}
-/* ── Tabs ── */
-#tabBar{background:#fff;border-bottom:2px solid #e8e8e8;display:flex;padding:0 20px;gap:4px;overflow-x:auto}
-.tab-btn{padding:12px 22px;border:none;background:none;cursor:pointer;font-size:14px;color:#666;border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:all .2s}
-.tab-btn.active{color:#2563eb;border-bottom-color:#2563eb;font-weight:700}
-.tab-pane{display:none;padding:18px 20px}
-.tab-pane.active{display:block}
-/* ── KPI Cards ── */
-.kpi-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
-.kpi-card{background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:150px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-.kpi-card .label{font-size:12px;color:#64748b;margin-bottom:4px}
-.kpi-card .val{font-size:22px;font-weight:700;color:#1a1a1a}
-.kpi-card .sub{font-size:12px;color:#64748b;margin-top:2px}
-/* ── Owner summary ── */
-.owner-row{display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap}
-.owner-card{background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:200px;box-shadow:0 1px 4px rgba(0,0,0,.08);border:1px solid #e5e7eb}
-.owner-card .name{font-size:13px;color:#64748b;margin-bottom:4px}
-.owner-card .amount{font-size:20px;font-weight:700}
-.owner-card .pct{font-size:12px;color:#64748b;margin-top:2px}
-/* ── Section headers ── */
-.sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.sec-hdr h3{font-size:14px;font-weight:700;color:#333;display:flex;align-items:center;gap:6px}
-/* ── Charts ── */
-.chart-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-.chart-box{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);flex:1;min-width:280px}
-.chart-box h3,.chart-box h4{font-size:13px;color:#475569;margin-bottom:10px;text-align:center}
-.chart-box canvas{max-height:220px}
-.focus-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:18px}
-.focus-card{background:#fff;border-radius:10px;padding:13px 15px;box-shadow:0 1px 4px rgba(0,0,0,.08);border:1px solid #e5e7eb}
-.focus-card.warn{background:#fffbeb;border-color:#f59e0b}.focus-card.good{background:#f0fdf4;border-color:#86efac}.focus-card.bad{background:#fff1f2;border-color:#fb7185}
-.focus-card .label{font-size:12px;color:#64748b;margin-bottom:5px}.focus-card .value{font-size:19px;font-weight:700}.focus-card .sub{font-size:12px;color:#64748b;margin-top:3px}
-.alloc-list{display:flex;flex-direction:column;gap:9px;margin-top:8px}
-.alloc-row{display:grid;grid-template-columns:82px 1fr 92px;gap:8px;align-items:center;font-size:12px}
-.alloc-name{color:#555;white-space:nowrap}.alloc-bar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden}.alloc-fill{height:100%;border-radius:999px}
-.alloc-num{text-align:right;color:#555;font-variant-numeric:tabular-nums}
-.alloc-empty{font-size:13px;color:#aaa;text-align:center;padding:18px 0}
-.owner-share-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
-.owner-share-row{display:grid;grid-template-columns:92px 1fr 110px;gap:10px;align-items:center;font-size:12px}
-.owner-share-name{color:#555}.owner-share-bar{height:10px;background:#eef2f7;border-radius:999px;overflow:hidden}.owner-share-fill{height:100%;border-radius:999px;background:#2563eb}
-.owner-share-num{text-align:right;color:#555;font-variant-numeric:tabular-nums}
-.detail-disclosure{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px;overflow:hidden}
-.detail-disclosure summary{list-style:none;cursor:pointer;padding:13px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
-.detail-disclosure summary::-webkit-details-marker{display:none}
-.detail-disclosure summary span{font-size:12px;color:#64748b;font-weight:500}
-.detail-disclosure .tbl-wrap{box-shadow:none;border-radius:0;margin-bottom:0}
-/* ── Table ── */
-.tbl-wrap{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:auto;margin-bottom:18px}
-table{width:100%;border-collapse:collapse;min-width:600px}
-thead th{background:#fafafa;font-size:12px;font-weight:600;color:#555;padding:9px 10px;text-align:left;border-bottom:2px solid #e8e8e8;white-space:nowrap;position:sticky;top:0;z-index:1}
-thead th.col-core{background:#fff4e6;color:#b45309;border-bottom-color:#f59e0b}
-thead th.col-opt{background:#eff6ff;color:#1d4ed8;border-bottom-color:#93c5fd}
-thead th.col-extra{background:#f4f4f5;color:#52525b;border-bottom-color:#d4d4d8}
-tbody tr:nth-child(even){background:#fafafa}
-tbody tr:hover{background:#f0f7ff}
-td{padding:6px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
-td input,td select{border:1px solid #e2e8f0;border-radius:5px;padding:4px 6px;font-size:13px;width:100%;background:#fff;font-family:inherit;transition:border-color .2s}
-td input:focus,td select:focus{outline:none;border-color:#2563eb}
-td.num{text-align:right;font-variant-numeric:tabular-nums}
-.del-btn{background:none;border:none;color:#ff4d4f;cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px;transition:background .15s}
-.del-btn:hover{background:#fff1f0}
-.price-cell,.mv-cell,.pnl-cell{font-size:13px}
-.rise{color:#c92a2a}.fall{color:#15803d}.flat{color:#64748b}
-/* ── Rebalance ── */
-.reb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:18px}
-.reb-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-.reb-card .cat-name{font-size:13px;font-weight:600;margin-bottom:8px}
-.reb-card .prog-wrap{background:#f0f0f0;border-radius:4px;height:8px;margin-bottom:6px;overflow:hidden}
-.reb-card .prog-bar{height:8px;border-radius:4px;transition:width .4s}
-.reb-card .numbers{display:flex;justify-content:space-between;font-size:12px;color:#64748b}
-.reb-card .suggest{font-size:12px;margin-top:6px;padding:4px 8px;border-radius:4px;font-weight:600}
-.suggest.ok{background:#f0fdf4;color:#166534}
-.suggest.over{background:#fff7e6;color:#d46b08}
-.suggest.under{background:#e6f7ff;color:#0958d9}
-.target-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12px}
-.target-row label{width:90px;color:#666;white-space:nowrap}
-.target-row input[type=number]{width:76px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;font-size:13px;text-align:right}
-.target-row .unit{font-size:12px;color:#64748b}
-.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.advanced-config{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden}
-.advanced-config summary{list-style:none;cursor:pointer;padding:14px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
-.advanced-config summary::-webkit-details-marker{display:none}
-.advanced-config summary span{font-size:12px;color:#64748b;font-weight:500}
-.advanced-config .advanced-body{padding:0 16px 16px;border-top:1px solid #f1f5f9}
-.owner-target-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
-.settings-card-actions{display:flex;gap:8px;flex-wrap:wrap}
-.crypto-sync-status{font-size:12px;color:#64748b;margin-top:10px;line-height:1.45}
-.crypto-sync-status.ok{color:#047857}.crypto-sync-status.warn{color:#b45309}.crypto-sync-status.err{color:#be123c}
-.github-sync-grid{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-top:10px}
-.github-token-input{border:1px solid #e2e8f0;border-radius:6px;padding:7px 9px;font-size:13px;min-width:0}
-.github-sync-meta{font-size:12px;color:#64748b;margin-top:8px;line-height:1.45}
-.preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px}
-.preset-btn{border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:9px 10px;text-align:left;cursor:pointer;font-family:inherit;transition:all .15s}
-.preset-btn:hover{border-color:#2563eb;background:#f8fbff}
-.preset-btn b{display:block;font-size:13px;color:#1f2937;margin-bottom:2px}
-.preset-btn span{display:block;font-size:11px;color:#64748b}
-.preset-btn .ratios{margin-top:4px;color:#334155;line-height:1.45}
-#targetSum{font-size:12px;margin-top:6px;padding:4px 8px;border-radius:4px;font-weight:600}
-.sum-ok{background:#f0fdf4;color:#166534}
-.sum-err{background:#fff7e6;color:#b45309}
-/* ── Market grid ── */
-.market-tools{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
-.market-tools input{border:1px solid #e2e8f0;border-radius:7px;padding:8px 12px;font-size:13px;width:200px}
-.quality-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:18px}
-.quality-card{background:#fff;border-radius:10px;padding:13px 15px;border:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-.quality-card.good{background:#f0fdf4;border-color:#86efac}.quality-card.warn{background:#fffbeb;border-color:#f59e0b}.quality-card.bad{background:#fff1f2;border-color:#fb7185}
-.quality-card .label{font-size:12px;color:#64748b;margin-bottom:5px}.quality-card .value{font-size:19px;font-weight:700}.quality-card .sub{font-size:12px;color:#64748b;margin-top:3px}
-.issue-list{display:flex;flex-direction:column;gap:10px}
-.issue-row{display:grid;grid-template-columns:128px 1fr 84px;gap:10px;align-items:center;font-size:12px}
-.issue-title{font-weight:700;color:#334155}.issue-detail{color:#64748b;line-height:1.45}
-.secondary-details{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden;margin-bottom:18px}
-.secondary-details summary{list-style:none;cursor:pointer;padding:13px 16px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
-.secondary-details summary::-webkit-details-marker{display:none}
-.secondary-details summary span{font-size:12px;color:#64748b;font-weight:500}
-.secondary-body{padding:0 16px 16px}
-.mkt-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
-.mkt-card{background:#fff;border-radius:10px;padding:12px 16px;min-width:160px;box-shadow:0 1px 4px rgba(0,0,0,.08);position:relative;cursor:default}
-.mkt-card .mname{font-size:12px;color:#64748b;margin-bottom:2px}
-.mkt-card .mprice{font-size:18px;font-weight:700}
-.mkt-card .mchg{font-size:13px;margin-top:2px;font-weight:600}
-.mkt-card .muted{color:#94a3b8}
-.mkt-card-del{position:absolute;top:6px;right:8px;background:none;border:none;color:#ccc;cursor:pointer;font-size:14px}
-.mkt-card-del:hover{color:#ff4d4f}
-.mkt-section-title{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin:8px 0 6px}
-.valuation-table{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:auto;margin-bottom:18px}
-.valuation-table table{min-width:900px}
-.status-pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;background:#f1f5f9;color:#475569}
-.status-pill.ok{background:#ecfdf5;color:#047857}
-.status-pill.est{background:#eff6ff;color:#1d4ed8}
-.status-pill.warn{background:#fff7e6;color:#b45309}
-.status-pill.risk { background: #fee2e2 !important; color: #991b1b !important; font-weight: bold; border: 1px solid #fca5a5; }
-.status-pill.adjust { background: #ffedd5 !important; color: #c2410c !important; }
-.status-pill.review { background: #dbeafe !important; color: #1e40af !important; }
-.status-pill.observe { background: #f0fdf4 !important; color: #166534 !important; }
-.hegang-tag { background: #fee2e2; color: #991b1b; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #fca5a5; }
-.focus-card.risk { background: #fee2e2 !important; border-color: #fca5a5 !important; color: #991b1b !important; }
-.status-pill.bad{background:#fff1f2;color:#be123c}
-.quote-note{font-size:12px;color:#64748b;margin-left:8px}
-/* ── Notes ── */
-.notes-area{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:13px;resize:vertical;min-height:80px;font-family:inherit}
-.notes-area:focus{outline:none;border-color:#2563eb}
-/* ── Buttons ── */
-.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:500;transition:all .15s;white-space:nowrap}
-.btn-primary{background:#2563eb;color:#fff}.btn-primary:hover{background:#1d4ed8}
-.btn-success{background:#15803d;color:#fff}.btn-success:hover{background:#166534}
-.btn-warn{background:#d97706;color:#fff}.btn-warn:hover{background:#b45309}
-.btn-danger{background:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
-.btn-ghost{background:#f1f5f9;color:#334155}.btn-ghost:hover{background:#e2e8f0}
-.btn:focus-visible,.tab-btn:focus-visible,.bottom-nav-btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid rgba(37,99,235,.25);outline-offset:2px}
-.btn:disabled{cursor:not-allowed;opacity:.55}
-/* ── Decision home ── */
-.empty-state{display:none;background:#fff;border:1px solid #dbe3ec;border-radius:8px;padding:28px;min-height:280px;align-items:center;justify-content:center;text-align:center;margin-bottom:18px}
-.empty-state.show{display:flex}
-.empty-state-inner{max-width:620px}
-.empty-state .eyebrow{font-size:12px;color:#64748b;font-weight:700;margin-bottom:8px}
-.empty-state h2{font-size:22px;color:#172033;margin-bottom:10px}
-.empty-state p{font-size:14px;color:#64748b;line-height:1.65;margin:0 auto 18px;max-width:52ch}
-.empty-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
-#portfolioContent.is-hidden{display:none}
-.decision-summary{display:grid;grid-template-columns:minmax(260px,1.35fr) minmax(240px,1fr) minmax(200px,.8fr);background:#fff;border:1px solid #dbe3ec;border-radius:8px;box-shadow:0 1px 4px rgba(15,23,42,.06);margin-bottom:14px;overflow:hidden}
-.decision-block{padding:18px 20px;min-width:0}
-.decision-block+.decision-block{border-left:1px solid #e8edf3}
-.decision-question{font-size:12px;color:#64748b;font-weight:700;margin-bottom:7px}
-.decision-total{font-size:30px;line-height:1.15;font-weight:800;color:#172033;font-variant-numeric:tabular-nums}
-.decision-value{font-size:22px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums}
-.decision-value.rise{color:#c92a2a}.decision-value.fall{color:#15803d}.decision-value.warn{color:#b45309}.decision-value.flat{color:#475569}
-.decision-sub{font-size:12px;color:#64748b;line-height:1.5;margin-top:6px}
-.decision-breakdown{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
-.decision-breakdown div{background:#f6f8fb;border-radius:6px;padding:7px 8px}
-.decision-breakdown span{display:block;font-size:11px;color:#64748b;margin-bottom:2px}
-.decision-breakdown b{font-size:13px;color:#334155;font-variant-numeric:tabular-nums}
-.decision-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
-.decision-panel{background:#fff;border:1px solid #dbe3ec;border-radius:8px;padding:16px;box-shadow:0 1px 4px rgba(15,23,42,.05);min-width:0}
-.decision-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
-.decision-panel-head h2{font-size:15px;color:#1f2937}
-.decision-panel-head span{font-size:12px;color:#64748b}
-.decision-list{display:flex;flex-direction:column;gap:8px}
-.decision-item{display:grid;grid-template-columns:76px 1fr auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #eef2f6}
-.decision-item:last-child{border-bottom:none}
-.decision-item .kind{font-size:11px;color:#64748b;font-weight:700}
-.decision-item .main{min-width:0;font-size:13px;color:#334155;line-height:1.45}
-.decision-item .main b{display:block;color:#1f2937;margin-bottom:2px}
-.decision-empty{font-size:13px;color:#64748b;padding:12px 0}
-.next-action{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid #eef2f6}
-.next-action:last-child{border-bottom:none}
-.next-action b{display:block;font-size:13px;color:#1f2937;margin-bottom:3px}
-.next-action p{font-size:12px;color:#64748b;line-height:1.45}
-.section-title{font-size:14px;color:#334155;margin:18px 0 10px}
-.owner-card.actionable{cursor:pointer;transition:border-color .15s,box-shadow .15s}
-.owner-card.actionable:hover{border-color:#93c5fd;box-shadow:0 2px 8px rgba(37,99,235,.12)}
-/* ── Transaction log ── */
-.record-layout{display:grid;grid-template-columns:minmax(320px,.85fr) minmax(380px,1.15fr);gap:16px;align-items:start}
-.record-panel{background:#fff;border:1px solid #dbe3ec;border-radius:8px;padding:18px;box-shadow:0 1px 4px rgba(15,23,42,.05)}
-.record-panel h2{font-size:16px;color:#1f2937;margin-bottom:5px}
-.record-help{font-size:12px;color:#64748b;line-height:1.55;margin-bottom:16px}
-.record-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.record-field{min-width:0}
-.record-field.full{grid-column:1/-1}
-.record-field label{display:block;font-size:12px;color:#475569;font-weight:700;margin-bottom:5px}
-.record-field input,.record-field select,.record-field textarea{width:100%;border:1px solid #cbd5e1;border-radius:7px;padding:8px 10px;font-size:13px;font-family:inherit;background:#fff;color:#1f2937}
-.record-field textarea{min-height:72px;resize:vertical}
-.record-hint{font-size:12px;color:#64748b;line-height:1.45;margin-top:5px}
-.record-warning{display:none;background:#fff7e6;color:#9a3412;border:1px solid #fed7aa;border-radius:7px;padding:9px 10px;font-size:12px;line-height:1.5;margin-top:12px}
-.record-warning.show{display:block}
-.record-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
-.tx-list{display:flex;flex-direction:column}
-.tx-row{display:grid;grid-template-columns:92px 1fr 122px;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid #eef2f6}
-.tx-row:last-child{border-bottom:none}
-.tx-type{font-size:12px;font-weight:700;color:#475569}
-.tx-main{min-width:0}
-.tx-main b{display:block;font-size:13px;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tx-main span{display:block;font-size:12px;color:#64748b;margin-top:2px;line-height:1.4}
-.tx-amount{text-align:right;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
-.tx-amount.positive{color:#c92a2a}.tx-amount.negative{color:#15803d}.tx-amount.neutral{color:#475569}
-.tx-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-.tx-toolbar h3{font-size:14px;color:#334155}
-/* ── Mobile bottom navigation ── */
-#bottomNav{display:none;position:fixed;left:0;right:0;bottom:0;z-index:300;background:#fdfefe;border-top:1px solid #dbe3ec;padding:5px 6px calc(5px + env(safe-area-inset-bottom));box-shadow:0 -4px 14px rgba(15,23,42,.08)}
-.bottom-nav-btn{flex:1;min-width:0;border:0;background:transparent;color:#64748b;font-family:inherit;font-size:11px;padding:7px 4px;border-radius:7px;cursor:pointer}
-.bottom-nav-btn.active{color:#1d4ed8;background:#eff6ff;font-weight:700}
-/* ── Modal ── */
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center}
-.modal.open{display:flex}
-.modal-box{background:#fff;border-radius:14px;padding:24px;width:90%;max-width:560px;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
-.modal-box h3{font-size:16px;font-weight:700;margin-bottom:16px}
-.modal-box input[type=password]{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;font-size:14px;font-family:inherit}
-.modal-msg{font-size:13px;color:#64748b;line-height:1.55;margin-bottom:12px}
-.modal-status{font-size:12px;color:#64748b;white-space:pre-wrap;line-height:1.45;margin-top:10px}
-.modal-status.err{color:#be123c}.modal-status.ok{color:#047857}
-.field-map-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0f0f0}
-.field-map-row:last-child{border-bottom:none}
-.fmr-excel{font-size:13px;color:#555;flex:1;font-family:monospace}
-.fmr-arrow{color:#aaa;font-size:16px}
-.fmr-tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px}
-.tag-core{background:#fff4e6;color:#b45309}
-.tag-opt{background:#eff6ff;color:#1d4ed8}
-.tag-extra{background:#f4f4f5;color:#52525b}
-.tag-skip{background:#fff0f0;color:#cf1322}
-.modal-footer{margin-top:16px;display:flex;justify-content:flex-end;gap:10px}
-/* ── Toast ── */
-#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:9px 20px;border-radius:20px;font-size:13px;display:none;z-index:10000;pointer-events:none}
-/* ── responsive ── */
-@media(max-width:760px){
-  body{padding-bottom:68px}
-  #topbar{height:auto;min-height:54px;padding:10px 12px;gap:10px;align-items:flex-start}
-  #topbar h1{font-size:16px;line-height:1.8}
-  #topbar .actions{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
-  #topbar .desktop-quick{display:none}
-  .snapshot-info{width:100%;text-align:right;font-size:11px}
-  #tabBar{display:none}
-  #bottomNav{display:flex}
-  .tab-pane{padding:14px 12px}
-  .kpi-row,.owner-row,.chart-row{flex-direction:column}
-  .tab-btn{padding:10px 14px;font-size:13px}
-  .focus-grid,.quality-grid{grid-template-columns:1fr}
-  .alloc-row{grid-template-columns:74px 1fr 82px}
-  .owner-share-row{grid-template-columns:80px 1fr 92px}
-  .issue-row{grid-template-columns:1fr}
-  .settings-grid,.owner-target-grid{grid-template-columns:1fr}
-  .market-tools input{width:100%}
-  .market-tools .btn{flex:1;justify-content:center}
-  .detail-disclosure summary,.secondary-details summary,.advanced-config summary{align-items:flex-start;gap:8px;flex-direction:column}
-  .reb-grid{grid-template-columns:1fr}
-  .decision-summary,.decision-grid,.record-layout{grid-template-columns:1fr}
-  .decision-block+.decision-block{border-left:none;border-top:1px solid #e8edf3}
-  .decision-total{font-size:27px}
-  .decision-item{grid-template-columns:1fr;gap:5px}
-  .decision-item .status-pill{justify-self:start}
-  .next-action{flex-direction:column}
-  .next-action .btn{align-self:flex-start}
-  #actionItems .alloc-row{grid-template-columns:1fr!important;gap:7px!important}
-  #actionItems .status-pill{justify-self:start}
-  .record-grid{grid-template-columns:1fr}
-  .record-field.full{grid-column:auto}
-  .tx-row{grid-template-columns:76px 1fr}
-  .tx-amount{grid-column:2;text-align:left}
-  #toast{bottom:82px;max-width:88vw;text-align:center}
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --line:#e3e8ef; --text:#1a1a1a; --muted:#6b7280;
+  --blue:#4472C4; --blue-soft:#eaf0fb; --green:#2e7d32; --green-soft:#e8f5e9;
+  --red:#c62828; --red-soft:#fdecea; --amber:#b26a00; --amber-soft:#fff4e0;
 }
-
-@media print{
-  #bottomNav,#topbar .actions,#tabBar{display:none!important}
-  body{padding-bottom:0}
-}
-
-/* SOP Guide Style */
-.sop-guide {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-.sop-guide summary {
-  font-weight: 700;
-  color: #1e293b;
-  cursor: pointer;
-  outline: none;
-  user-select: none;
-  font-size: 14px;
-}
-.sop-guide summary::-webkit-details-marker { color: #64748b; }
-.sop-guide-content {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #475569;
-}
-.sop-step {
-  background: #ffffff;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #f1f5f9;
-}
-.sop-step h4 {
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sop-step h4 .badge {
-  background: #e2e8f0;
-  color: #475569;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 99px;
-}
-
-/* Micro-modal for long text editing on mobile */
-.note-modal {
-  display: none;
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 9999;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-.note-modal.open { display: flex; }
-.note-modal-box {
-  background: #ffffff;
-  border-radius: 12px;
-  width: 100%;
-  max-width: 500px;
-  padding: 20px;
-  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
-  animation: modalEnter 0.2s ease-out;
-}
-@keyframes modalEnter {
-  from { transform: scale(0.95); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
-}
-.note-modal-header {
-  font-weight: 700;
-  font-size: 16px;
-  color: #0f172a;
-  margin-bottom: 12px;
-}
-.note-modal-textarea {
-  width: 100%;
-  height: 150px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 10px;
-  font-size: 14px;
-  resize: none;
-  outline: none;
-  margin-bottom: 16px;
-}
-.note-modal-textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-}
-.note-modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.6}
+header{background:#1f3864;color:#fff;padding:14px 16px;position:sticky;top:0;z-index:10}
+header h1{margin:0;font-size:17px;font-weight:600}
+header .sub{font-size:12px;opacity:.75;margin-top:2px}
+nav{display:flex;gap:4px;background:#fff;border-bottom:1px solid var(--line);padding:0 8px;overflow-x:auto;position:sticky;top:56px;z-index:9}
+nav button{border:0;background:none;padding:11px 12px;font-size:14px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+nav button.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+main{padding:14px;max-width:980px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:15px}
+.grid{display:grid;gap:12px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+.kpi .label{font-size:12px;color:var(--muted)}
+.kpi .value{font-size:22px;font-weight:700;margin-top:2px}
+.kpi .hint{font-size:12px;color:var(--muted);margin-top:4px}
+.up{color:var(--red)}      /* 涨=红（A股习惯） */
+.down{color:var(--green)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+th{background:var(--blue-soft);font-weight:600;color:#1f3864;font-size:12px}
+td.num,th.num{text-align:right}
+input,select,textarea,button{font-family:inherit;font-size:13px}
+input,select,textarea{border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;background:#fff;color:var(--text)}
+input[type=number]{text-align:right}
+textarea{min-height:110px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+button{background:var(--blue);color:#fff;border:0;border-radius:6px;padding:7px 12px;cursor:pointer}
+button.ghost{background:#fff;color:var(--blue);border:1px solid var(--blue)}
+button.danger{background:#fff;color:var(--red);border:1px solid var(--red)}
+button.sm{padding:4px 8px;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1;min-width:120px}
+.muted{color:var(--muted);font-size:12px}
+.bar{height:10px;background:#eef1f6;border-radius:5px;overflow:hidden;position:relative}
+.bar span{display:block;height:100%;background:var(--blue)}
+.tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px}
+.tag.warn{background:var(--amber-soft);color:var(--amber)}
+.tag.act{background:var(--red-soft);color:var(--red)}
+.tag.ok{background:var(--green-soft);color:var(--green)}
+.tag.info{background:var(--blue-soft);color:var(--blue)}
+ul.tight{margin:6px 0 0;padding-left:18px}
+ul.tight li{margin-bottom:3px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:640px){.split{grid-template-columns:1fr}.kpi .value{font-size:19px}}
+.hidden{display:none}
+.flash{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f3864;color:#fff;
+  padding:9px 16px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
+.flash.show{opacity:1}
 </style>
 </head>
 <body>
+<header>
+  <h1>资产驾驶舱</h1>
+  <div class="sub" id="hdsub">本地单机模式 · 数据保存在此浏览器</div>
+</header>
 
-<!-- Top Bar -->
-<div id="topbar">
-  <h1>家庭资金治理台 <span style="font-size:11px;opacity:.6;font-weight:400">v4.5</span></h1>
-  <div class="actions">
-    <button class="btn btn-ghost desktop-quick" onclick="switchTab('log')">记一笔</button>
-    <button class="btn btn-ghost desktop-quick" onclick="document.getElementById('fileInput').click()">导入</button>
-    <input type="file" id="fileInput" accept=".json,.xlsx,.xls,.csv" style="display:none">
-    <button class="btn btn-primary" onclick="saveSnap()">确认快照</button>
-    <span id="snapshotInfo" class="snapshot-info"></span>
-  </div>
-</div>
-
-<!-- Alert Banner -->
-<div id="alertBanner"><span id="alertTxt"></span><span class="alert-close" onclick="this.parentNode.style.display='none'">✕</span></div>
-
-<!-- Tabs -->
-<div id="tabBar">
-  <button class="tab-btn active" data-tab="overview">合并总览</button>
-  <button class="tab-btn" data-tab="ownerA">责任人 A</button>
-  <button class="tab-btn" data-tab="ownerB">责任人 B</button>
-  <button class="tab-btn" data-tab="log">记一笔</button>
-  <button class="tab-btn" data-tab="market">估值监控</button>
-  <button class="tab-btn" data-tab="settings">设置</button>
-</div>
-
-<!-- ═══ OVERVIEW TAB ════════════════════════════════════════════════════ -->
-<div id="pane-overview" class="tab-pane active">
-  <div id="emptyPortfolioState" class="empty-state">
-    <div class="empty-state-inner">
-      <div class="eyebrow">首次使用</div>
-      <h2>先建立一份可判断的资产底账</h2>
-      <p>导入 Excel/CSV 会先完整校验，通过后才整体替换现有资产。已有云端密文则直接加载；也可以先记一笔现金或存款余额开始使用。</p>
-      <div class="empty-actions">
-        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">导入资产文件</button>
-        <button class="btn btn-ghost" onclick="loadRemoteEncryptedPortfolio(true)">加载云端数据</button>
-        <button class="btn btn-ghost" onclick="switchTab('log')">记第一笔</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="portfolioContent">
-    <section class="decision-summary" aria-label="日常决策摘要">
-      <div class="decision-block">
-        <div class="decision-question">1. 今天多少钱</div>
-        <div id="decisionTotal" class="decision-total">¥0</div>
-        <div id="decisionTotalSub" class="decision-sub"></div>
-      </div>
-      <div class="decision-block">
-        <div class="decision-question">2. 较上次怎么变</div>
-        <div id="decisionDelta" class="decision-value flat">待确认快照</div>
-        <div id="decisionDeltaSub" class="decision-sub"></div>
-        <div id="decisionBreakdown" class="decision-breakdown"></div>
-      </div>
-      <div class="decision-block">
-        <div class="decision-question">数据可信度</div>
-        <div id="decisionCoverage" class="decision-value flat">—</div>
-        <div id="decisionCoverageSub" class="decision-sub"></div>
-      </div>
-    </section>
-
-    <div class="decision-grid">
-      <section class="decision-panel">
-        <div class="decision-panel-head"><div><span>3. 哪里异常</span><h2>优先关注</h2></div></div>
-        <div id="attentionSummary"></div>
-      </section>
-      <section class="decision-panel">
-        <div class="decision-panel-head"><div><span>4. 下一步做什么</span><h2>建议动作</h2></div></div>
-        <div id="nextActionSummary"></div>
-      </section>
-    </div>
-
-    <h2 class="section-title">资产分布</h2>
-    <div class="owner-row" id="ownerRow"></div>
-    <div class="chart-row">
-      <div class="chart-box"><h3>资产大类分布（合并）</h3><canvas id="chartAlloc"></canvas><div id="allocBars"></div></div>
-      <div class="chart-box"><h3>责任人占比</h3><canvas id="chartOwner"></canvas><div id="ownerShareBars"></div></div>
-    </div>
-    <div class="chart-row">
-      <div class="chart-box"><h3>参照标的贡献</h3><div id="exposureImpact"></div></div>
-      <div class="chart-box"><h3>待处理事项明细</h3><div id="actionItems"></div></div>
-    </div>
-    <details class="detail-disclosure">
-      <summary>资产明细与编辑 <span>导入、调整和核对时再打开</span></summary>
-      <div class="sec-hdr" style="padding:0 16px 10px"><h3>全部资产明细</h3>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-success" onclick="addRow()">新增</button>
-        </div>
-      </div>
-      <div class="tbl-wrap"><table><thead id="tblHead"></thead><tbody id="tblBody"></tbody></table></div>
-    </details>
-    <div class="sec-hdr"><h3>再平衡建议（合并）</h3></div>
-    <div id="rebAll"></div>
-  </div>
-
-  <details class="sop-guide">
-    <summary>使用说明 <span style="font-size:12px;font-weight:normal;color:#64748b;margin-left:8px">需要时展开</span></summary>
-    <div class="sop-guide-content">
-      <div class="sop-step">
-        <h4><span class="badge">1</span> 准备或导入资产数据</h4>
-        <p>支持拖入或导入券商、Excel 导出的资产表。也可以直接点击下方按钮一键填充<b>「模拟演示数据」</b>进行功能探索。</p>
-        <div style="margin-top:10px; display:flex; gap:6px;">
-          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="loadMockDemoData()">⚡ 填充演示数据</button>
-          <button class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="downloadCSVTemplate()">📥 下载标准CSV模板</button>
-        </div>
-      </div>
-      <div class="sop-step">
-        <h4><span class="badge">2</span> 进行方法论分析与标记</h4>
-        <p>展开<b>「资产明细与编辑」</b>，点击个股或基金，双击或点击「分析结论」在弹窗中录入基本面逻辑，并在「何刚风险红线」一栏对潜在风险（如治理风险、财务风险等）进行一票否决标记。</p>
-      </div>
-      <div class="sop-step">
-        <h4><span class="badge">3</span> 核对健康度并确认快照</h4>
-        <p>通过<b>「待处理事项」</b>优先级列表、<b>「再平衡建议」</b>和<b>「估值监控」</b>发现红线和配置偏离。调整妥当后点击右上角<b>「确认快照」</b>建立日常比较基准，监控日内波动。</p>
-      </div>
-    </div>
-  </details>
-</div>
-
-<!-- ═══ OWNER A TAB ════════════════════════════════════════════════════ -->
-<div id="pane-ownerA" class="tab-pane">
-  <div class="kpi-row" id="kpiRowA"></div>
-  <div class="chart-row">
-    <div class="chart-box"><h4>责任人 A · 资产大类分布</h4><canvas id="chartAllocA"></canvas><div id="allocBarsA"></div></div>
-  </div>
-  <div class="sec-hdr"><h3>责任人 A · 资产明细</h3>
-    <button class="btn btn-success" onclick="addRow('A')">＋ 新增</button>
-  </div>
-  <div class="tbl-wrap"><table><thead id="tblHeadA"></thead><tbody id="tblBodyA"></tbody></table></div>
-  <div class="sec-hdr"><h3>再平衡建议（责任人 A）</h3></div>
-  <div id="rebA"></div>
-  <div style="margin-top:14px">
-    <div class="sec-hdr"><h3>备忘录</h3></div>
-    <textarea id="notesA" class="notes-area" placeholder="责任人 A 的备注…" oninput="save()"></textarea>
-  </div>
-</div>
-
-<!-- ═══ OWNER B TAB ════════════════════════════════════════════════════ -->
-<div id="pane-ownerB" class="tab-pane">
-  <div class="kpi-row" id="kpiRowB"></div>
-  <div class="chart-row">
-    <div class="chart-box"><h4>责任人 B · 资产大类分布</h4><canvas id="chartAllocB"></canvas><div id="allocBarsB"></div></div>
-  </div>
-  <div class="sec-hdr"><h3>责任人 B · 资产明细</h3>
-    <button class="btn btn-success" onclick="addRow('B')">＋ 新增</button>
-  </div>
-  <div class="tbl-wrap"><table><thead id="tblHeadB"></thead><tbody id="tblBodyB"></tbody></table></div>
-  <div class="sec-hdr"><h3>再平衡建议（责任人 B）</h3></div>
-  <div id="rebB"></div>
-  <div style="margin-top:14px">
-    <div class="sec-hdr"><h3>备忘录</h3></div>
-    <textarea id="notesB" class="notes-area" placeholder="责任人 B 的备注…" oninput="save()"></textarea>
-  </div>
-</div>
-
-<!-- ═══ TRANSACTION LOG TAB ════════════════════════════════════════════ -->
-<div id="pane-log" class="tab-pane">
-  <div class="record-layout">
-    <section class="record-panel">
-      <h2>记一笔</h2>
-      <p class="record-help">用于记录现金、存款、理财等按金额维护的资产变化。基金或股票如果采用“份额 × 净值”估值，请在资产明细中更新份额。</p>
-      <div class="record-grid">
-        <div class="record-field">
-          <label for="txAction">变化类型</label>
-          <select id="txAction" onchange="updateTransactionForm()">
-            <option value="deposit">外部转入</option>
-            <option value="withdraw">外部转出</option>
-            <option value="income">收益或分红</option>
-            <option value="expense">费用或损失</option>
-            <option value="adjust">余额校准</option>
-          </select>
-        </div>
-        <div class="record-field">
-          <label for="txDate">发生日期</label>
-          <input id="txDate" type="date">
-        </div>
-        <div class="record-field full">
-          <label for="txAssetSelect">资产</label>
-          <select id="txAssetSelect" onchange="updateTransactionForm()"></select>
-        </div>
-        <div id="txNewAssetFields" class="record-field full" style="display:none">
-          <div class="record-grid">
-            <div class="record-field">
-              <label for="txOwner">责任人</label>
-              <select id="txOwner"><option>责任人 A</option><option>责任人 B</option></select>
-            </div>
-            <div class="record-field">
-              <label for="txCategory">资产大类</label>
-              <select id="txCategory"></select>
-            </div>
-            <div class="record-field full">
-              <label for="txAssetName">资产名称</label>
-              <input id="txAssetName" maxlength="80" placeholder="例如：工资卡、三年期存款">
-            </div>
-          </div>
-        </div>
-        <div class="record-field full">
-          <label id="txAmountLabel" for="txAmount">变化金额</label>
-          <input id="txAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
-          <div id="txAmountHint" class="record-hint">转入会增加总资产，并计入较快照的外部资金变化。</div>
-        </div>
-        <div class="record-field full">
-          <label for="txNote">备注</label>
-          <textarea id="txNote" maxlength="200" placeholder="可选，例如：工资到账、赎回到银行卡"></textarea>
-        </div>
-      </div>
-      <div id="txValuationWarning" class="record-warning"></div>
-      <div class="record-actions">
-        <button class="btn btn-primary" onclick="recordTransaction()">确认记录</button>
-      </div>
-    </section>
-
-    <section class="record-panel">
-      <div class="tx-toolbar">
-        <div><h3>最近记录</h3><div class="record-hint">记录会随资产一起加密同步到云端。</div></div>
-        <button id="undoTxBtn" class="btn btn-ghost" onclick="undoLatestTransaction()">撤销最近一笔</button>
-      </div>
-      <div id="txHistoryList" class="tx-list"></div>
-    </section>
-  </div>
-</div>
-
-<!-- ═══ MARKET TAB ════════════════════════════════════════════════════ -->
-<div id="pane-market" class="tab-pane">
-  <div class="market-tools">
-    <input id="mktCodeInput" placeholder="输入代码如 sh510300">
-    <button class="btn btn-primary" onclick="addWatch()">＋ 添加自选</button>
-    <button class="btn btn-ghost" onclick="fetchMarket()">刷新行情</button>
-    <button class="btn btn-ghost" onclick="document.getElementById('quoteInput').click()">导入估值缓存</button>
-    <input type="file" id="quoteInput" accept=".json" style="display:none">
-    <button class="btn btn-ghost" onclick="downloadQuoteTemplate()">缓存模板</button>
-    <span id="mktTs" style="font-size:12px;color:#aaa"></span>
-  </div>
-  <div id="valuationQualitySummary" class="quality-grid"></div>
-  <div class="chart-row">
-    <div class="chart-box"><h4>待补估值依据</h4><div id="valuationIssues"></div></div>
-    <div class="chart-box"><h4>最大敞口</h4><div id="marketExposureList"></div></div>
-  </div>
-  <div class="mkt-section-title">参照标的与估值质量</div>
-  <div id="valuationGrid" class="valuation-table"></div>
-  <details class="secondary-details">
-    <summary>自选行情和大盘指数 <span>辅助核对，默认收起</span></summary>
-    <div class="secondary-body">
-      <div class="mkt-section-title">自选行情</div>
-      <div id="mktGrid" class="mkt-grid"></div>
-      <div class="mkt-section-title" style="margin-top:10px">大盘指数</div>
-      <div id="mktIndexGrid" class="mkt-grid"></div>
-    </div>
-  </details>
-</div>
-
-<!-- ═══ SETTINGS TAB ════════════════════════════════════════════════════ -->
-<div id="pane-settings" class="tab-pane">
-  <div class="chart-box" style="margin-bottom:18px">
-    <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">经典配置参考</h4>
-    <div class="preset-grid" id="presetGrid"></div>
-    <div style="font-size:12px;color:#64748b">配置按钮会应用到合并、责任人 A、责任人 B 三组目标；合计不必强制 100%，系统会按权重归一化计算再平衡。</div>
-  </div>
-  <div class="settings-grid">
-
-    <!-- All targets -->
-    <div class="chart-box">
-      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">目标配置比例（合并）</h4>
-      <div id="slidersAll"></div>
-      <div id="targetSumAll" class="sum-ok" style="margin-top:8px;font-size:12px;padding:4px 8px;border-radius:4px">合计：0%</div>
-    </div>
-
-    <!-- Alerts -->
-    <div class="chart-box">
-      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">总资产预警阈值</h4>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <label style="font-size:13px;color:#555">跌幅预警（%）
-          <input id="alertDown" type="number" value="5" min="0" max="50" step="0.5"
-            style="margin-left:8px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;width:80px;font-size:13px" oninput="save()">
-        </label>
-        <label style="font-size:13px;color:#555">涨幅预警（%）
-          <input id="alertUp" type="number" value="10" min="0" max="100" step="0.5"
-            style="margin-left:8px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;width:80px;font-size:13px" oninput="save()">
-        </label>
-      </div>
-    </div>
-
-    <details class="advanced-config">
-      <summary>责任人目标配置 <span>高级设置，默认沿用合并目标即可</span></summary>
-      <div class="advanced-body">
-        <div class="owner-target-grid">
-          <div>
-            <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">责任人 A</h4>
-            <div id="slidersA"></div>
-            <div id="targetSumA" class="sum-ok" style="margin-top:8px;font-size:12px;padding:4px 8px;border-radius:4px">合计：0%</div>
-          </div>
-          <div>
-            <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">责任人 B</h4>
-            <div id="slidersB"></div>
-            <div id="targetSumB" class="sum-ok" style="margin-top:8px;font-size:12px;padding:4px 8px;border-radius:4px">合计：0%</div>
-          </div>
-        </div>
-      </div>
-    </details>
-
-    <div class="chart-box">
-      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">数据管理</h4>
-      <div class="settings-card-actions">
-        <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">导入文件</button>
-        <button class="btn btn-ghost" onclick="exportJSON()">导出备份</button>
-        <button class="btn btn-primary" onclick="startEncryptedExport()">导出加密资产</button>
-        <button class="btn btn-ghost" onclick="loadRemoteEncryptedPortfolio(true)">加载云端加密资产</button>
-        <button class="btn btn-danger" onclick="clearAll()">清空数据</button>
-      </div>
-      <div id="cryptoSyncStatus" class="crypto-sync-status">云端加密资产：检测中</div>
-      <div style="font-size:12px;color:#64748b;margin-top:10px">这些操作属于偶尔维护，已从首页顶部下沉到设置页。</div>
-    </div>
-
-    <div class="chart-box">
-      <h4 style="text-align:left;font-size:14px;font-weight:700;color:#333;margin-bottom:12px">GitHub 云端写回</h4>
-      <div class="github-sync-grid">
-        <input id="githubTokenInput" class="github-token-input" type="password" autocomplete="off" placeholder="Fine-grained token，仅本机保存">
-        <button class="btn btn-ghost" onclick="saveGitHubToken()">保存</button>
-      </div>
-      <div class="settings-card-actions" style="margin-top:10px">
-        <button class="btn btn-primary" onclick="startGitHubSync()">同步到云端</button>
-        <button class="btn btn-ghost" onclick="loadRemoteEncryptedPortfolio(true)">从云端加载</button>
-        <button class="btn btn-ghost" onclick="clearGitHubToken()">清除 token</button>
-      </div>
-      <div id="githubSyncStatus" class="crypto-sync-status">GitHub 写回：未配置</div>
-      <div class="github-sync-meta">写回目标：fund-manager-dashboard / data/portfolio.encrypted.json。token 仅用于写仓库，资产内容会先用主密码加密。</div>
-    </div>
-  </div>
-</div>
-
-<nav id="bottomNav" aria-label="手机主导航">
-  <button class="bottom-nav-btn active" data-tab="overview" onclick="switchTab('overview')">总览</button>
-  <button class="bottom-nav-btn" data-tab="log" onclick="switchTab('log')">记一笔</button>
-  <button class="bottom-nav-btn" data-tab="market" onclick="switchTab('market')">监控</button>
-  <button class="bottom-nav-btn" data-tab="settings" onclick="switchTab('settings')">设置</button>
+<nav id="nav">
+  <button data-tab="home" class="on">工作台</button>
+  <button data-tab="hold">持仓</button>
+  <button data-tab="ledger">记账</button>
+  <button data-tab="plan">定投</button>
+  <button data-tab="recon">对账</button>
+  <button data-tab="set">设置</button>
 </nav>
 
-<!-- Import Modal -->
-<div class="modal" id="importModal">
-  <div class="modal-box">
-    <h3>字段映射确认</h3>
-    <p style="font-size:13px;color:#64748b;margin-bottom:14px">
-      <span style="background:#fff4e6;color:#b45309;padding:1px 6px;border-radius:4px;font-weight:700">橙色</span> = 固定核心列 &nbsp;
-      <span style="background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:4px;font-weight:700">蓝色</span> = 可选功能列 &nbsp;
-      <span style="background:#f4f4f5;color:#52525b;padding:1px 6px;border-radius:4px;font-weight:700">灰色</span> = 自定义列
-    </p>
-    <div id="fieldMapList"></div>
-    <div style="margin-top:12px;background:#f8fafc;color:#475569;padding:10px;border-radius:8px;font-size:13px;line-height:1.5">
-      本次导入校验通过后，将整体替换当前资产清单；如发现表头、责任人或金额错误，现有数据不会被改动。
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="cancelImport()">取消</button>
-      <button class="btn btn-primary" onclick="confirmImport()">确认导入</button>
+<main>
+<!-- ============ 工作台 ============ -->
+<section id="tab-home">
+  <div class="card hidden" id="emptyStart">
+    <h2>快速上手</h2>
+    <div class="muted">还没录入任何资产，三种方式开始：</div>
+    <div class="row" style="margin-top:10px">
+      <button onclick="loadDemo()">① 载入示例数据看看效果</button>
+      <button class="ghost" onclick="goHold();">② 去持仓页导入/新增</button>
+      <button class="ghost" onclick="goHold('pasteBox');">③ 粘贴 Excel 数据导入</button>
     </div>
   </div>
-</div>
+  <div class="grid kpis" id="kpis"></div>
 
-<!-- Crypto Modal -->
-<div class="modal" id="cryptoModal">
-  <div class="modal-box">
-    <h3 id="cryptoModalTitle">解锁云端加密资产</h3>
-    <p id="cryptoModalMsg" class="modal-msg">输入主密码后，资产数据只会在本浏览器内解密。</p>
-    <input id="cryptoPassword" type="password" autocomplete="current-password" placeholder="输入主密码">
-    <div id="cryptoModalStatus" class="modal-status"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeCryptoModal()">取消</button>
-      <button id="cryptoConfirmBtn" class="btn btn-primary" onclick="confirmCryptoModal()">解密加载</button>
+  <div class="card" id="actionCard">
+    <h2>当前最大问题 & 下一步动作</h2>
+    <div id="actions"></div>
+  </div>
+
+  <div class="card hidden" id="planCard">
+    <h2>定投（设置一次，到期自动入账）</h2>
+    <div id="planHome"></div>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <h2>钱押在哪（资产大类）</h2>
+      <div id="catTable"></div>
+    </div>
+    <div class="card">
+      <h2>钱放在哪（账户/平台）</h2>
+      <div id="accTable"></div>
     </div>
   </div>
-</div>
 
-<div id="toast"></div>
+  <div class="split">
+    <div class="card">
+      <h2>净资产走势</h2>
+      <div id="trend"></div>
+      <div class="muted" id="twr"></div>
+    </div>
+    <div class="card">
+      <h2>集中度 & 数据健康</h2>
+      <div id="health"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>外部环境（信息层 · 仅供参考，不构成买卖依据）</h2>
+    <div class="row">
+      <div><span class="muted">市场估值</span><div id="mktVal">—</div></div>
+      <div><span class="muted">研报摘要</span><div id="research">M4 接入（宏观/策略报告 AI 摘要）</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 持仓 ============ -->
+<section id="tab-hold" class="hidden">
+  <div class="card">
+    <h2>导入初始台账</h2>
+    <div class="muted">方式一：在 Excel/WPS 里选中「持仓清单」的数据区域（含表头）复制，粘贴到下面 → 解析导入。方式二：选 CSV 文件。方式三：在下方表格手工新增。</div>
+    <textarea id="pasteBox" placeholder="账户/平台	资产大类	名称	代码	标签	币种	数量/份额	成本单价	备注"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button onclick="importPasted(false)">解析并追加</button>
+      <button class="ghost" onclick="importPasted(true)">解析并替换全部</button>
+      <input type="file" id="csvFile" accept=".csv,.tsv,.txt" onchange="importFile(this)">
+    </div>
+    <div id="importMsg" class="muted" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h2>持仓明细（可直接改数量 / 价格 / 成本）</h2>
+    <div style="overflow-x:auto"><table id="holdTable"></table></div>
+    <div class="muted" style="margin-top:6px">有代码的资产：市值 = 份额/股数 × 最新价（价格需在「设置 → 更新行情」维护，上线后由定时任务自动抓）。无代码资产：数量即金额。</div>
+  </div>
+
+  <div class="card">
+    <h2>新增持仓</h2>
+    <div class="row">
+      <input id="nAcc" placeholder="账户/平台 如 华泰证券">
+      <select id="nCat"></select>
+      <input id="nName" placeholder="名称 如 贵州茅台">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="nCode" placeholder="代码（选填）">
+      <input id="nTag" placeholder="标签（选填，如 科技）">
+      <select id="nCur"><option>CNY</option><option>USD</option><option>HKD</option></select>
+      <input id="nQty" type="number" step="any" placeholder="数量/份额">
+      <input id="nCost" type="number" step="any" placeholder="成本单价（选填）">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="addHolding()">添加</button>
+      <button class="ghost" onclick="loadDemo()">载入示例数据</button>
+      <button class="danger" onclick="clearAll()">清空全部数据</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 记账 ============ -->
+<section id="tab-ledger" class="hidden">
+  <div class="card">
+    <h2>记一笔（10 秒）</h2>
+    <div class="row">
+      <input type="date" id="tDate">
+      <select id="tType">
+        <option value="转入">外部转入</option>
+        <option value="转出">外部转出</option>
+        <option value="收益">收益/分红</option>
+        <option value="费用">费用/损失</option>
+        <option value="转账">平台间转账</option>
+        <option value="校准">余额校准</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="tAcc" placeholder="账户（如 招商银行）">
+      <input id="tAcc2" placeholder="转入账户（仅转账填）">
+      <input id="tAmt" type="number" step="any" placeholder="金额">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <select id="tAsset"></select>
+      <input id="tNote" placeholder="备注（如 加仓茅台）">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="addTx()">保存</button>
+      <label class="muted" style="flex:2"><input type="checkbox" id="tSync" style="width:auto"> 同步调整该资产数量（买入/卖出时勾上）</label>
+      <button class="ghost" onclick="undoTx()">撤销上一笔</button>
+    </div>
+    <div class="muted">说明：转账不算资金进出，不影响收益归因；校准会直接把该资产数量改成你填的金额。每条流水带日期，漏记补录时填真实日期，否则收益率算不准。</div>
+  </div>
+  <div class="card">
+    <h2>流水</h2>
+    <div style="overflow-x:auto"><table id="txTable"></table></div>
+  </div>
+</section>
+
+<!-- ============ 定投 ============ -->
+<section id="tab-plan" class="hidden">
+  <div class="card">
+    <h2>定投计划</h2>
+    <div class="muted">设置一次，之后每次打开页面系统会自动把「已到期但还没记」的期次补进流水和持仓，不用手动记一笔。补记按到期日当天的最新价折算份额；没价格的资产按「金额=份额」处理。</div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="syncPlans(false)">立即同步（补记到期期次）</button>
+      <span class="muted" id="planSyncState" style="flex:2"></span>
+    </div>
+    <div style="overflow-x:auto;margin-top:10px"><table id="planTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>新增定投计划</h2>
+    <div class="row">
+      <input id="pName" placeholder="计划名称 如 沪深300 月投">
+      <select id="pAsset"></select>
+      <select id="pFrom"></select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="pAmt" type="number" step="any" placeholder="每期金额（元）">
+      <select id="pFreq" onchange="onFreqChange()">
+        <option value="monthly">每月</option>
+        <option value="weekly">每周</option>
+        <option value="biweekly">每两周</option>
+        <option value="quarterly">每季</option>
+      </select>
+      <span id="pDayWrap"><input id="pDayNum" type="number" min="1" max="31" placeholder="每月几号" style="width:120px"></span>
+      <select id="pDayWd" class="hidden">
+        <option value="1">周一</option><option value="2">周二</option><option value="3">周三</option>
+        <option value="4">周四</option><option value="5">周五</option><option value="6">周六</option><option value="7">周日</option>
+      </select>
+      <input type="date" id="pStart" title="起始日期">
+      <input type="date" id="pEnd" title="结束日期（选填，留空=长期）">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="addPlan()">添加计划</button>
+      <span class="muted" style="flex:2" id="pFreqHint">每月固定日期扣款；当月没有该日期时自动取月末。</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>说明</h2>
+    <div class="muted">
+      <b>扣款账户</b>：选一个现金/活期类持仓，系统会自动从它扣减相同金额，钱不会凭空多出来；选「新增资金（外部转入）」表示每期是新钱投入，会计入外部资金进出。<br>
+      <b>跳过本期</b>：本期不投，标记已处理，不产生流水。<br>
+      <b>暂停</b>：保留计划，期间不再自动补记，恢复后不会倒补暂停期的期次。<br>
+      <b>撤销</b>：在「记账 → 撤销上一笔」可撤销最后一笔定投（持仓数量一并回滚）。<br>
+      <b>补历史</b>：起始日期填过去，一次最多自动补 24 期，避免误填导致灌入大量流水。
+    </div>
+  </div>
+</section>
+
+<!-- ============ 对账 ============ -->
+<section id="tab-recon" class="hidden">
+  <div class="card">
+    <h2>按账户对账（每周一次，约 10 分钟）</h2>
+    <div class="muted">在「实际余额」里填各平台的真实数字；点「校准」会把该账户下的持仓总额调整到实际值（生成一条校准流水）。注意：「系统值」= 该账户下的资产市值，<b>不含负债</b>（房贷等在"负债"行另算）；如果该账户同时有资产和负债，对账只对资产部分。</div>
+    <div style="overflow-x:auto"><table id="reconTable"></table></div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="finishRecon()">本周已完成对账</button>
+      <div class="muted" id="reconState"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>变化归因（自上次对账以来）</h2>
+    <div id="attrib"></div>
+  </div>
+</section>
+
+<!-- ============ 设置 ============ -->
+<section id="tab-set" class="hidden">
+  <div class="card">
+    <h2>目标资产配置比例</h2>
+    <div id="targetBox"></div>
+    <div class="muted" id="targetSum"></div>
+  </div>
+  <div class="card">
+    <h2>系统参数</h2>
+    <div class="row">
+      <div><span class="muted">比较基准</span><input id="pBench"></div>
+      <div><span class="muted">基准区间涨跌幅 %（可手工填）</span><input id="pBenchChg" type="number" step="any"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><span class="muted">回撤预警阈值 %</span><input id="pDD" type="number" step="any"></div>
+      <div><span class="muted">偏离提醒阈值（百分点）</span><input id="pDev" type="number" step="any"></div>
+      <div><span class="muted">市场估值</span><select id="pMkt"><option>偏高</option><option>中性</option><option>偏低</option></select></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><span class="muted">汇率 USD→CNY</span><input id="pUSD" type="number" step="any"></div>
+      <div><span class="muted">汇率 HKD→CNY</span><input id="pHKD" type="number" step="any"></div>
+    </div>
+    <div class="row" style="margin-top:8px"><button onclick="saveParams()">保存参数</button></div>
+  </div>
+  <div class="card">
+    <h2>更新行情 / 净值</h2>
+    <div class="muted">每行一条：<code>代码 价格</code>，例 <code>600519 1680.00</code>。上线后这一步由 GitHub 定时任务每天自动完成，页面会直接读取 <code>data/quotes.json</code>。</div>
+    <textarea id="quoteBox" placeholder="600519 1680.00&#10;000961 1.8560&#10;510300 4.012"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button onclick="applyQuotes()">写入行情</button>
+      <div class="muted" id="quoteState"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>数据备份</h2>
+    <div class="row">
+      <button class="ghost" onclick="exportJSON()">导出 JSON</button>
+      <button class="ghost" onclick="document.getElementById('jsonFile').click()">导入 JSON</button>
+      <input type="file" id="jsonFile" accept=".json" class="hidden" onchange="importJSON(this)">
+    </div>
+    <div class="muted" style="margin-top:6px">加密云同步（自动同步、免手动）属于 M2 收尾项，届时在这里配置令牌与主密码。</div>
+  </div>
+</section>
+</main>
+<div class="flash" id="flash"></div>
 
 <script>
-// ══════════════════════════════════════════════════════════════
-//  CONSTANTS
-// ══════════════════════════════════════════════════════════════
-const CATS = ['现金/存款','固收/理财','基金/ETF','股票','加密/另类','其他'];
-const CAT_COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#64748b'];
-const LS_KEY = 'fgov_v4';
-const GITHUB_SYNC_KEY = 'fgov_github_sync_v1';
-const REMOTE_QUOTE_CACHE_URL = 'data/quotes_cache_latest.json';
-const REMOTE_PORTFOLIO_URL = 'data/portfolio.encrypted.json';
-const CRYPTO_ITERATIONS = 600000;
-const GITHUB_SYNC_DEFAULTS = {
-  owner: 'HuangJun722',
-  repo: 'fund-manager-dashboard',
-  branch: 'main',
-  sourcePath: 'data/portfolio.encrypted.json',
-  pagesPath: 'docs/data/portfolio.encrypted.json'
-};
-
-// ── Field alias maps for fuzzy matching ──
-// CORE: MUST resolve to these 4 keys
-const CORE_ALIASES = {
-  owner: ['归属责任人','责任人','owner','持有人','归属人'],
-  name:  ['资产名称','名称','品名','name','资产'],
-  cat:   ['资产大类','大类','类别','分类','category','cat','类型'],
-  amount:['当前金额','余额','金额','当前余额','市值','总金额','当前市值','amount','balance','当前金额/余额']
-};
-// OPTIONAL: nice-to-have functional keys
-const OPT_ALIASES = {
-  code:  ['行情代码','代码','证券代码','股票代码','code','ticker','symbol'],
-  shares:['持有数量','份额','数量','持仓数量','持有份额','shares','qty'],
-  cost:  ['买入成本','成本','成本价','均价','买入价','cost','avg'],
-  nav:   ['现在价格','现价','最新净值','单位净值','净值','nav','price'],
-  note:  ['备注','note','notes','说明','描述','remark']
-};
-
-function normalizeHeader(h){
-  return String(h||'').trim().replace(/[（(）)\s\/\\]/g,'').toLowerCase();
-}
-function matchCol(header){
-  const clean = normalizeHeader(header);
-  const candidates = [];
-  for(const [field,names] of Object.entries(CORE_ALIASES)){
-    names.forEach(name=>{
-      const alias = normalizeHeader(name);
-      if(alias && clean.includes(alias)) candidates.push({type:'core', field, score:alias.length});
-    });
-  }
-  for(const [field,names] of Object.entries(OPT_ALIASES)){
-    names.forEach(name=>{
-      const alias = normalizeHeader(name);
-      if(alias && clean.includes(alias)) candidates.push({type:'opt', field, score:alias.length});
-    });
-  }
-  if(candidates.length){
-    candidates.sort((a,b)=>b.score-a.score || (a.type==='core'?-1:1));
-    return {type:candidates[0].type, field:candidates[0].field};
-  }
-  return {type:'extra'};
-}
-function findHeaderRow(data){
-  let bestIdx = -1, bestScore = -1;
-  data.slice(0,20).forEach((row,idx)=>{
-    const found = new Set(row.map(h=>matchCol(h)).filter(c=>c.type==='core').map(c=>c.field));
-    const score = found.size;
-    if(score>bestScore){ bestScore=score; bestIdx=idx; }
-  });
-  return bestScore>=2 ? bestIdx : -1;
-}
-function getImportTable(data){
-  const headerIdx = findHeaderRow(data);
-  if(headerIdx<0) return null;
-  const headers = data[headerIdx].map(h=>String(h).trim());
-  const bodyRows = data.slice(headerIdx+1).filter(r=>r.some(c=>String(c).trim()!==''));
-  return {headers, bodyRows};
-}
-function parseMoney(val){
-  return parseFloat(String(val).replace(/[,，¥￥\s]/g,''))||0;
-}
-function parseMoneyStrict(val){
-  const raw = String(val ?? '').trim();
-  if(!raw) return null;
-  const normalized = raw.replace(/[,，¥￥\s]/g,'');
-  if(!normalized) return null;
-  const num = Number(normalized);
-  return Number.isFinite(num) ? num : null;
-}
-function normalizeOwner(ownerStr){
-  const s = String(ownerStr ?? '').trim().replace(/\s+/g,'').toUpperCase();
-  if(s==='A' || s==='责任人A') return '责任人 A';
-  if(s==='B' || s==='责任人B') return '责任人 B';
-  return '';
-}
-
-const BENCHMARK_RULES = [
-  {name:'沪深300', code:'sh000300', re:/沪深\s*300|hs300|300ETF|300联接/i},
-  {name:'中证A500', code:'', re:/中证\s*A?\s*500|A500/i},
-  {name:'中证红利低波', code:'', re:/红利低波|低波红利|红利.*低波/i},
-  {name:'科创50', code:'sh000688', re:/科创\s*50|科创板50/i},
-  {name:'科创100', code:'', re:/科创\s*100|科创板100/i},
-  {name:'创业板指', code:'sz399006', re:/创业板|创业板指/i},
-  {name:'上证50', code:'sh000016', re:/上证\s*50/i},
-  {name:'纳斯达克100', code:'', re:/纳斯达克\s*100|纳指\s*100|NASDAQ\s*100/i},
-  {name:'标普500', code:'', re:/标普\s*500|S&P\s*500|SP500/i},
-  {name:'黄金', code:'', re:/黄金|gold/i}
+/* ============ 状态 ============ */
+const KEY = 'amp_v1';
+const CATS = ['现金存款','固收理财','基金ETF','股票','另类（黄金等）','其他','负债'];
+// 内置经典配置方案（权益 = 股票 + 基金ETF）
+const PLANS = [
+  {key:'steady', name:'稳健型（权益55%）', desc:'现金10/固收30/权益55/黄金5。攻守平衡的默认起点，波动可接受',
+   t:{'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0}},
+  {key:'conservative', name:'保守型（权益30%）', desc:'现金10/固收55/权益30/黄金5。以不亏为主，适合近几年要用钱',
+   t:{'现金存款':0.10,'固收理财':0.55,'基金ETF':0.20,'股票':0.10,'另类（黄金等）':0.05,'其他':0}},
+  {key:'balanced', name:'均衡型（股债60/40）', desc:'现金5/固收30/权益60/黄金5。长期最经典的平衡组合',
+   t:{'现金存款':0.05,'固收理财':0.30,'基金ETF':0.40,'股票':0.20,'另类（黄金等）':0.05,'其他':0}},
+  {key:'growth', name:'进取型（权益80%）', desc:'现金5/固收10/权益80/黄金5。波动大，适合长期不用、能扛回撤',
+   t:{'现金存款':0.05,'固收理财':0.10,'基金ETF':0.50,'股票':0.30,'另类（黄金等）':0.05,'其他':0}},
+  {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
+   t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const ALLOCATION_PRESETS = [
-  {
-    name: '何刚·稳健参考',
-    desc: '何刚2024稳健型：30-50%货币/债券防守，50-70%高股息/混合成长，年化目标2%+',
-    values: {
-      '现金/存款': 40,
-      '固收/理财': 10,
-      '基金/ETF': 20,
-      '股票': 20,
-      '加密/另类': 10,
-      '其他': 0
-    }
-  },
-  {name:'稳健型', desc:'固收为主，权益适中', values:{'现金/存款':10,'固收/理财':50,'基金/ETF':30,'股票':5,'加密/另类':5,'其他':0}},
-  {name:'均衡型', desc:'股债均衡，长期默认', values:{'现金/存款':5,'固收/理财':35,'基金/ETF':45,'股票':10,'加密/另类':5,'其他':0}},
-  {name:'成长型', desc:'权益占比更高', values:{'现金/存款':5,'固收/理财':15,'基金/ETF':55,'股票':20,'加密/另类':5,'其他':0}},
-  {name:'全天候参考', desc:'分散到债券和另类', values:{'现金/存款':0,'固收/理财':55,'基金/ETF':25,'股票':5,'加密/另类':15,'其他':0}}
-];
-function normalizeCategory(val){
-  const s = String(val||'').trim();
-  if(!s) return '其他';
-  if(CATS.includes(s)) return s;
-  if(/现金|存款|活期|货币|余额宝|零钱通/i.test(s)) return '现金/存款';
-  if(/固收|理财|债券|国债|定期|存单|收益凭证/i.test(s)) return '固收/理财';
-  if(/基金|ETF|联接|指数|混合/i.test(s)) return '基金/ETF';
-  if(/股票|A股|港股|美股|个股/i.test(s)) return '股票';
-  if(/黄金|加密|另类|商品|数字货币/i.test(s)) return '加密/另类';
-  return '其他';
-}
-function inferBenchmark(row){
-  const text = [row.name,row.code,row.note,row.benchmark].filter(Boolean).join(' ');
-  const hit = BENCHMARK_RULES.find(r=>r.re.test(text));
-  return hit ? hit.name : '';
-}
-function benchmarkCode(name){
-  const hit = BENCHMARK_RULES.find(r=>r.name===name);
-  return hit ? hit.code : '';
-}
-function getQuoteStore(){
-  if(!S.quoteCache) S.quoteCache = {asOf:'', funds:{}, benchmarks:{}, securities:{}};
-  S.quoteCache.funds = S.quoteCache.funds || {};
-  S.quoteCache.benchmarks = S.quoteCache.benchmarks || {};
-  S.quoteCache.securities = S.quoteCache.securities || {};
-  return S.quoteCache;
-}
-function normalizeQuote(raw){
-  if(!raw) return null;
-  return {
-    name: raw.name || '',
-    nav: raw.nav!==undefined ? parseMoney(raw.nav) : undefined,
-    price: raw.price!==undefined ? parseMoney(raw.price) : undefined,
-    chgPct: raw.chgPct!==undefined ? parseFloat(raw.chgPct) : (raw.chg!==undefined ? parseFloat(raw.chg) : undefined),
-    asOf: raw.asOf || raw.date || ''
-  };
-}
-function getBenchmarkQuote(name){
-  if(!name) return null;
-  const cache = getQuoteStore();
-  const cached = normalizeQuote(cache.benchmarks[name]);
-  if(cached) return cached;
-  const code = benchmarkCode(name);
-  const md = code ? mktData[code] : null;
-  return md ? {name, price:md.price, chgPct:md.chg, asOf:'实时行情'} : null;
-}
-function getSecurityQuote(code){
-  if(!code) return null;
-  const c = String(code).trim().toLowerCase();
-  const cache = getQuoteStore();
-  return normalizeQuote(cache.securities[c]) || (mktData[c] ? {name:mktData[c].name, price:mktData[c].price, chgPct:mktData[c].chg, asOf:'实时行情'} : null);
-}
-function getValuation(row){
-  const base = parseFloat(row.amount)||0;
-  const shares = parseFloat(row.shares)||0;
-  const code = String(row.code||'').trim().toLowerCase();
-  const cache = getQuoteStore();
-  const benchmark = row.benchmark || inferBenchmark(row);
-  if(normalizeCategory(row.cat)==='现金/存款'){
-    return {amount:base, status:'现金金额', cls:'ok', benchmark:'现金/存款', quote:null, asOf:'导入文件'};
-  }
-  const fundQuote = normalizeQuote(cache.funds[code]);
-  if(fundQuote && fundQuote.nav && shares){
-    return {amount:shares*fundQuote.nav, status:'基金净值', cls:'ok', benchmark, quote:fundQuote.nav, asOf:fundQuote.asOf};
-  }
-  if(row.nav && shares){
-    return {amount:shares*parseFloat(row.nav), status:'导入净值', cls:'ok', benchmark, quote:parseFloat(row.nav), asOf:'导入文件'};
-  }
-  const securityQuote = getSecurityQuote(code);
-  if(securityQuote && securityQuote.price && shares){
-    return {amount:shares*securityQuote.price, status:'场内行情', cls:'ok', benchmark, quote:securityQuote.price, asOf:securityQuote.asOf};
-  }
-  if(securityQuote && isFinite(securityQuote.chgPct) && base){
-    return {amount:base*(1+securityQuote.chgPct/100), status:'行情估算', cls:'est', benchmark, quote:securityQuote.chgPct, asOf:securityQuote.asOf};
-  }
-  const benchQuote = getBenchmarkQuote(benchmark);
-  if(benchQuote && isFinite(benchQuote.chgPct) && base){
-    return {amount:base*(1+benchQuote.chgPct/100), status:'指数估算', cls:'est', benchmark, quote:benchQuote.chgPct, asOf:benchQuote.asOf};
-  }
-  if(normalizeCategory(row.cat)==='固收/理财'){
-    return {amount:base, status:'沿用导入金额', cls:'est', benchmark:'固收/理财', quote:null, asOf:'导入文件'};
-  }
-  return {amount:base, status:benchmark?'等待数据':'仅导入金额', cls:benchmark?'warn':'bad', benchmark, quote:null, asOf:''};
-}
-function getRowValue(row){ return getValuation(row).amount; }
-function fmtSigned(n){ return n>=0 ? '+'+fmt(n) : '-'+fmt(Math.abs(n)); }
-function formatQuote(v, status){
-  if(v===null || v===undefined || v==='') return '—';
-  return /估算/.test(status) ? ((v>=0?'+':'')+Number(v).toFixed(2)+'%') : Number(v).toFixed(4);
-}
-function isRealtimeCode(code){
-  return /^(sh|sz)\d{6}$/i.test(String(code||'').trim());
-}
-function getRealtimeCodes(){
-  const fromRows = S.rows.flatMap(r=>{
-    const codes = [];
-    if(isRealtimeCode(r.code)) codes.push(String(r.code).trim().toLowerCase());
-    const bCode = benchmarkCode(r.benchmark || inferBenchmark(r));
-    if(bCode) codes.push(bCode);
-    return codes;
-  });
-  return [...new Set([...S.watchlist.filter(isRealtimeCode), ...fromRows, ...INDEX_CODES])];
-}
+const DEFAULTS = {
+  holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
+  targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
+  params: {benchmark:'沪深300', benchChange:0, drawdown:5, devAbs:5, devRel:50, market:'中性', fx:{CNY:1, USD:7.10, HKD:0.92}},
+  meta: {lastReconcile:'', quoteDate:'', lastSnapshot:'', plan:'稳健型（权益55%）', planBase:'稳健型（权益55%）', planDesc:''}
+};
+let S = load();
+let TAB = 'home';
 
-// ── Default state ──
-const DEF_STATE = () => ({
-  rows: [], nextId: 1,
-  extraFields: [],  // [{key, label}] — user custom columns in order
-  targets: {
-    all: {'现金/存款':20,'固收/理财':20,'基金/ETF':30,'股票':15,'加密/另类':10,'其他':5},
-    A:   {'现金/存款':20,'固收/理财':20,'基金/ETF':30,'股票':15,'加密/另类':10,'其他':5},
-    B:   {'现金/存款':20,'固收/理财':20,'基金/ETF':30,'股票':15,'加密/另类':10,'其他':5}
-  },
-  watchlist: [],
-  quoteCache: {asOf:'', funds:{}, benchmarks:{}, securities:{}},
-  snapshot: null,
-  transactions: [],
-  cryptoSync: null,
-  notesA: '', notesB: '',
-  alertDown: 5, alertUp: 10
-});
-
-let S = DEF_STATE();
-let mktData = {};
-let mktTimer = null;
-let charts = {};
-let pendingRows = [], pendingExtra = [], pendingMap = [], pendingImportIssues = [];
-let pendingCryptoEnvelope = null;
-let cryptoModalMode = '';
-
-function normalizeState(data){
-  const defaults = DEF_STATE();
-  const input = data || {};
-  const next = Object.assign({}, defaults, input);
-  next.rows = Array.isArray(next.rows) ? next.rows : [];
-  next.rows.forEach(r => {
-    const owner = normalizeOwner(r.owner);
-    if (owner) r.owner = owner;
-    if (!r.redline) r.redline = '无';
-    if (!r.analysisNote) r.analysisNote = '';
-  });
-  next.extraFields = Array.isArray(next.extraFields) ? next.extraFields : [];
-  next.watchlist = Array.isArray(next.watchlist) ? next.watchlist : [];
-  next.transactions = Array.isArray(next.transactions) ? next.transactions.slice(0,200) : [];
-  const inputTargets = input.targets || {};
-  next.targets = {};
-  ['all','A','B'].forEach(scope=>{
-    next.targets[scope] = Object.assign({}, defaults.targets[scope], inputTargets[scope] || {});
-  });
-  next.quoteCache = next.quoteCache || defaults.quoteCache;
-  next.quoteCache.funds = next.quoteCache.funds || {};
-  next.quoteCache.benchmarks = next.quoteCache.benchmarks || {};
-  next.quoteCache.securities = next.quoteCache.securities || {};
-  next.nextId = Math.max(Number(next.nextId)||1, next.rows.reduce((m,r)=>Math.max(m, Number(r.id)||0),0)+1);
-  return next;
-}
-
-function applyState(data, opts={}){
-  const previousQuoteCache = S.quoteCache;
-  S = normalizeState(data);
-  if(opts.preserveQuoteCache && previousQuoteCache) S.quoteCache = previousQuoteCache;
-  if(opts.cryptoFingerprint){
-    S.cryptoSync = {source:'github-pages', loadedAt:new Date().toISOString(), fingerprint:opts.cryptoFingerprint};
-  }
-  persistState();
-  renderAll();
-}
-
-// ══════════════════════════════════════════════════════════════
-//  PERSIST
-// ══════════════════════════════════════════════════════════════
-function persistState(){
-  localStorage.setItem(LS_KEY, JSON.stringify(S));
-}
-function save(){
-  S.notesA = document.getElementById('notesA').value;
-  S.notesB = document.getElementById('notesB').value;
-  S.alertDown = parseFloat(document.getElementById('alertDown').value)||5;
-  S.alertUp   = parseFloat(document.getElementById('alertUp').value)||10;
-  persistState();
-}
 function load(){
   try{
-    const raw = localStorage.getItem(LS_KEY);
-    if(raw) S = normalizeState(JSON.parse(raw));
-    // back-compat: ensure extraFields
-    if(!S.extraFields) S.extraFields=[];
-    if(!S.quoteCache) S.quoteCache={asOf:'', funds:{}, benchmarks:{}, securities:{}};
-  }catch(e){}
+    const raw = localStorage.getItem(KEY);
+    if(!raw) return JSON.parse(JSON.stringify(DEFAULTS));
+    const s = JSON.parse(raw);
+    s.params = Object.assign({}, DEFAULTS.params, s.params || {});
+    s.params.fx = Object.assign({}, DEFAULTS.params.fx, (s.params.fx||{}));
+    s.meta = Object.assign({}, DEFAULTS.meta, s.meta || {});
+    ['holdings','transactions','snapshots','plans'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+    if(!s.quotes) s.quotes = {};
+    if(!s.targets) s.targets = Object.assign({}, DEFAULTS.targets);
+    return s;
+  }catch(e){ return JSON.parse(JSON.stringify(DEFAULTS)); }
 }
+function save(){ localStorage.setItem(KEY, JSON.stringify(S)); }
+function flash(msg){ const f=document.getElementById('flash'); f.textContent=msg; f.classList.add('show'); setTimeout(()=>f.classList.remove('show'),1800); }
+// 用本地日期，不用 toISOString（UTC 会导致早上 8 点前日期错一天）
+const today = ()=>{ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function money(n){ const v=Number(n)||0; return '¥'+v.toLocaleString('zh-CN',{maximumFractionDigits:0}); }
+function pct(n,d=1){ return ((Number(n)||0)*100).toFixed(d)+'%'; }
 
-// ══════════════════════════════════════════════════════════════
-//  ENCRYPTED PORTFOLIO SYNC
-// ══════════════════════════════════════════════════════════════
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
-
-function bytesToBase64(bytes){
-  let bin = '';
-  new Uint8Array(bytes).forEach(b=>bin += String.fromCharCode(b));
-  return btoa(bin);
+/* ============ 计算 ============ */
+function fxOf(c){ return (S.params.fx && S.params.fx[c]) || 1; }
+function priceOf(h){ const q=S.quotes[h.code]; return q? Number(q.price)||0 : 0; }
+function valueOf(h){
+  const qty = Number(h.qty)||0;
+  if(h.cat === '负债') return qty * fxOf(h.cur);
+  const p = priceOf(h);
+  return (p>0 ? qty*p : qty) * fxOf(h.cur);   // 无行情时把数量当金额
 }
-function base64ToBytes(base64){
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+function costOf(h){
+  if(h.cat==='负债') return 0;
+  const c = Number(h.cost)||0, qty=Number(h.qty)||0;
+  return c>0 ? c*qty*fxOf(h.cur) : 0;
 }
-function envelopeFingerprint(envelope){
-  return [
-    envelope && envelope.version,
-    envelope && envelope.createdAt,
-    envelope && envelope.kdf && envelope.kdf.salt,
-    envelope && envelope.cipher && envelope.cipher.iv,
-    String(envelope && envelope.ciphertext || '').length,
-    String(envelope && envelope.ciphertext || '').slice(0,24)
-  ].join('|');
-}
-function assertWebCrypto(){
-  if(!window.crypto || !crypto.subtle) throw new Error('当前环境不支持 Web Crypto。请使用 HTTPS 页面或 localhost。');
-}
-function assertStrongPassword(password){
-  if(String(password||'').length < 14) throw new Error('主密码至少 14 个字符；建议使用更长的密码短语。');
-}
-function validateEnvelope(envelope){
-  if(!envelope || envelope.version !== 1) throw new Error('不支持的密文版本');
-  if(!envelope.kdf || envelope.kdf.name !== 'PBKDF2' || envelope.kdf.hash !== 'SHA-256') throw new Error('不支持的 KDF 参数');
-  if(!envelope.cipher || envelope.cipher.name !== 'AES-GCM' || Number(envelope.cipher.length) !== 256) throw new Error('不支持的加密算法');
-  if(!envelope.kdf.salt || !envelope.cipher.iv || !envelope.ciphertext) throw new Error('密文文件不完整');
-}
-async function derivePortfolioKey(password, salt, usages, iterations=CRYPTO_ITERATIONS){
-  const baseKey = await crypto.subtle.importKey('raw', textEncoder.encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    {name:'PBKDF2', salt, iterations:Number(iterations), hash:'SHA-256'},
-    baseKey,
-    {name:'AES-GCM', length:256},
-    false,
-    usages
-  );
-}
-async function encryptStateEnvelope(password){
-  assertWebCrypto();
-  assertStrongPassword(password);
-  const plain = JSON.stringify(S);
-  JSON.parse(plain);
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await derivePortfolioKey(password, salt, ['encrypt']);
-  const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM', iv, tagLength:128}, key, textEncoder.encode(plain));
-  return {
-    version: 1,
-    createdAt: new Date().toISOString(),
-    payload: {type:'fund-manager-state', encoding:'utf-8+json'},
-    kdf: {name:'PBKDF2', hash:'SHA-256', iterations:CRYPTO_ITERATIONS, salt:bytesToBase64(salt)},
-    cipher: {name:'AES-GCM', length:256, iv:bytesToBase64(iv), tagLength:128},
-    ciphertext: bytesToBase64(ciphertext)
-  };
-}
-async function decryptStateEnvelope(envelope, password){
-  assertWebCrypto();
-  validateEnvelope(envelope);
-  const salt = base64ToBytes(envelope.kdf.salt);
-  const iv = base64ToBytes(envelope.cipher.iv);
-  const ciphertext = base64ToBytes(envelope.ciphertext);
-  const key = await derivePortfolioKey(password, salt, ['decrypt'], envelope.kdf.iterations);
-  const plaintext = await crypto.subtle.decrypt({name:'AES-GCM', iv, tagLength:128}, key, ciphertext);
-  return JSON.parse(textDecoder.decode(plaintext));
-}
-function downloadText(filename, text){
-  const blob = new Blob([text], {type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
-}
-function setCryptoSyncStatus(msg, cls=''){
-  const el = document.getElementById('cryptoSyncStatus');
-  if(!el) return;
-  el.className = 'crypto-sync-status'+(cls?' '+cls:'');
-  el.textContent = msg;
-}
-function setCryptoModalStatus(msg, cls=''){
-  const el = document.getElementById('cryptoModalStatus');
-  if(!el) return;
-  el.className = 'modal-status'+(cls?' '+cls:'');
-  el.textContent = msg || '';
-}
-function getGitHubSyncConfig(){
-  let saved = {};
-  try{ saved = JSON.parse(localStorage.getItem(GITHUB_SYNC_KEY) || '{}') || {}; }catch(e){}
-  return Object.assign({}, GITHUB_SYNC_DEFAULTS, saved);
-}
-function setGitHubSyncStatus(msg, cls=''){
-  const el = document.getElementById('githubSyncStatus');
-  if(!el) return;
-  el.className = 'crypto-sync-status'+(cls?' '+cls:'');
-  el.textContent = msg;
-}
-function initGitHubSyncUI(){
-  const cfg = getGitHubSyncConfig();
-  const input = document.getElementById('githubTokenInput');
-  if(input && cfg.token) input.value = cfg.token;
-  setGitHubSyncStatus(cfg.token ? 'GitHub 写回：token 已保存在本机' : 'GitHub 写回：未配置 token', cfg.token ? 'ok' : 'warn');
-}
-function saveGitHubToken(){
-  const input = document.getElementById('githubTokenInput');
-  const token = input ? input.value.trim() : '';
-  if(!token){ toast('请先粘贴 GitHub fine-grained token'); return; }
-  const cfg = getGitHubSyncConfig();
-  cfg.token = token;
-  localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify(cfg));
-  setGitHubSyncStatus('GitHub 写回：token 已保存在本机', 'ok');
-  toast('GitHub token 已保存在本机');
-}
-function clearGitHubToken(){
-  const cfg = getGitHubSyncConfig();
-  delete cfg.token;
-  localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify(cfg));
-  const input = document.getElementById('githubTokenInput');
-  if(input) input.value = '';
-  setGitHubSyncStatus('GitHub 写回：token 已清除', 'warn');
-  toast('GitHub token 已清除');
-}
-async function githubJsonRequest(url, options={}){
-  const cfg = getGitHubSyncConfig();
-  if(!cfg.token) throw new Error('请先保存 GitHub fine-grained token');
-  const res = await fetch(url, Object.assign({
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': 'Bearer '+cfg.token,
-      'X-GitHub-Api-Version': '2022-11-28'
-    }
-  }, options));
-  if(res.status===404) return {status:404, data:null};
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  if(!res.ok){
-    const msg = data && data.message ? data.message : ('HTTP '+res.status);
-    throw new Error(msg);
-  }
-  return {status:res.status, data};
-}
-async function getGitHubFileSha(path){
-  const cfg = getGitHubSyncConfig();
-  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(path).replace(/%2F/g,'/')}?ref=${encodeURIComponent(cfg.branch)}`;
-  const result = await githubJsonRequest(url);
-  return result.status===404 ? '' : (result.data && result.data.sha) || '';
-}
-async function putGitHubFile(path, text, message){
-  const cfg = getGitHubSyncConfig();
-  const sha = await getGitHubFileSha(path);
-  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${encodeURIComponent(path).replace(/%2F/g,'/')}`;
-  const body = {
-    message,
-    content: bytesToBase64(textEncoder.encode(text)),
-    branch: cfg.branch
-  };
-  if(sha) body.sha = sha;
-  return githubJsonRequest(url, {
-    method: 'PUT',
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': 'Bearer '+cfg.token,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
+function compute(){
+  let assets=0, debt=0, cost=0;
+  const byCat={}, byAcc={}, byTag={};
+  S.holdings.forEach(h=>{
+    const v = valueOf(h);
+    if(h.cat==='负债'){ debt += v; return; }
+    assets += v; cost += costOf(h);
+    byCat[h.cat] = (byCat[h.cat]||0) + v;
+    byAcc[h.account||'未分类'] = (byAcc[h.account||'未分类']||0) + v;
+    if(h.tag){ byTag[h.tag] = (byTag[h.tag]||0) + v; }
   });
+  const net = assets - debt;
+  CATS.filter(c=>c!=='负债').forEach(c=>{ if(!byCat[c]) byCat[c]=0; });
+  return {assets, debt, net, cost, byCat, byAcc, byTag};
 }
-async function uploadEncryptedPortfolio(envelope){
-  const cfg = getGitHubSyncConfig();
-  const text = JSON.stringify(envelope, null, 2);
-  const stamp = new Date().toISOString().replace('T',' ').slice(0,16);
-  await putGitHubFile(cfg.sourcePath, text, 'Update encrypted portfolio '+stamp);
-  await putGitHubFile(cfg.pagesPath, text, 'Publish encrypted portfolio '+stamp);
-  return envelopeFingerprint(envelope);
+function externalFlow(after, before){
+  let f=0;
+  S.transactions.forEach(t=>{
+    if(t.type==='转入' && t.date>before && t.date<=after) f += Number(t.amount)||0;
+    if(t.type==='转出' && t.date>before && t.date<=after) f -= Number(t.amount)||0;
+    if(t.type==='定投' && t.external && t.date>before && t.date<=after) f += Number(t.amount)||0;
+  });
+  return f;
 }
-function openCryptoModal(mode, envelope=null){
-  cryptoModalMode = mode;
-  pendingCryptoEnvelope = envelope;
-  const title = document.getElementById('cryptoModalTitle');
-  const msg = document.getElementById('cryptoModalMsg');
-  const password = document.getElementById('cryptoPassword');
-  const confirmBtn = document.getElementById('cryptoConfirmBtn');
-  password.value = '';
-  password.autocomplete = mode==='export' ? 'new-password' : 'current-password';
-  setCryptoModalStatus('');
-  if(mode==='export'){
-    title.textContent = '导出加密资产';
-    msg.textContent = '用主密码加密当前资产数据，并下载 portfolio.encrypted.json。';
-    confirmBtn.textContent = '加密下载';
-  }else if(mode==='github-sync'){
-    title.textContent = '同步到 GitHub';
-    msg.textContent = '输入主密码后，页面会先在本机加密资产，再把密文写回 GitHub 仓库。';
-    confirmBtn.textContent = '加密并同步';
-  }else{
-    title.textContent = '解锁云端加密资产';
-    msg.textContent = '输入主密码后，资产数据只会在本浏览器内解密并保存到本机缓存。';
-    confirmBtn.textContent = '解密加载';
+function twr(){
+  const sn = S.snapshots;
+  if(sn.length<1) return null;
+  let chain = 1;
+  for(let i=1;i<sn.length;i++){
+    const prev = Number(sn[i-1].net)||0, cur = Number(sn[i].net)||0;
+    if(prev<=0) continue;
+    chain *= (cur - (Number(sn[i].flow)||0)) / prev;
   }
-  document.getElementById('cryptoModal').classList.add('open');
-  setTimeout(()=>password.focus(), 50);
+  return chain - 1;
 }
-function closeCryptoModal(){
-  document.getElementById('cryptoModal').classList.remove('open');
-  document.getElementById('cryptoPassword').value = '';
-  setCryptoModalStatus('');
-  pendingCryptoEnvelope = null;
-  cryptoModalMode = '';
+function totalGain(){
+  const sn = S.snapshots;
+  const c = compute();
+  if(sn.length===0) return null;
+  const first = Number(sn[0].net)||0;
+  const flows = S.transactions.filter(t=>(t.type==='转入'||t.type==='转出') && t.date >= sn[0].date)
+    .reduce((a,t)=> a + (t.type==='转入'?1:-1)*(Number(t.amount)||0), 0);
+  return {amount: c.net - first - flows, flows: flows, first: first, firstDate: sn[0].date};
 }
-async function confirmCryptoModal(){
-  const btn = document.getElementById('cryptoConfirmBtn');
-  const password = document.getElementById('cryptoPassword').value;
-  btn.disabled = true;
-  try{
-    if(cryptoModalMode==='export'){
-      save();
-      setCryptoModalStatus('正在派生密钥并加密，可能需要几秒钟...');
-      const envelope = await encryptStateEnvelope(password);
-      downloadText('portfolio.encrypted.json', JSON.stringify(envelope, null, 2));
-      setCryptoSyncStatus('云端加密资产：已生成本地加密文件，提交到仓库后可跨设备加载', 'ok');
-      closeCryptoModal();
-      toast('加密资产文件已下载');
-    }else if(cryptoModalMode==='github-sync'){
-      save();
-      setCryptoModalStatus('正在加密并写回 GitHub，请勿关闭页面...');
-      setGitHubSyncStatus('GitHub 写回：正在加密并提交...', 'warn');
-      const envelope = await encryptStateEnvelope(password);
-      const fingerprint = await uploadEncryptedPortfolio(envelope);
-      S.cryptoSync = {
-        source:'github-api',
-        loadedAt:new Date().toISOString(),
-        fingerprint,
-        repo:getGitHubSyncConfig().repo
+function drawdown(){
+  const sn = S.snapshots; if(!sn.length) return null;
+  let peak = 0; sn.forEach(s=>{ peak = Math.max(peak, Number(s.net)||0); });
+  const c = compute(); const cur = c.net;
+  return peak>0 ? (cur/peak - 1) : null;
+}
+function deviation(c){
+  const out=[];
+  const devAbs = (Number(S.params.devAbs)||5)/100, devRel = (Number(S.params.devRel)||50)/100;
+  const total = c.assets>0 ? c.assets : 1;
+  if(c.assets<=0) return [];        // 没数据时不产生噪音红线
+  CATS.filter(x=>x!=='负债').forEach(cat=>{
+    const actual = (c.byCat[cat]||0)/total;
+    const target = Number(S.targets[cat])||0;
+    const d = actual - target;                       // 正=超配
+    const ad = Math.abs(d), rd = target>0 ? ad/target : (actual>0?1:0);
+    let level=null;
+    if(ad>=0.10) level='红线';
+    else if(ad>=devAbs || rd>=devRel) level='行动';
+    else if(ad>=devAbs*0.6 || rd>=devRel*0.4) level='提醒';
+    if(level) out.push({cat, actual, target, d, level, amount: d*total});
+  });
+  out.sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+  return out;
+}
+function concentration(c){
+  const out=[]; const total=c.assets>0?c.assets:1;
+  S.holdings.filter(h=>h.cat!=='负债').forEach(h=>{
+    const s = valueOf(h)/total;
+    if(s>0.35) out.push({name:h.name, share:s, type:'单一资产'});
+  });
+  let tagged=0;
+  S.holdings.filter(h=>h.cat!=='负债'&&h.tag).forEach(h=>tagged+=valueOf(h));
+  Object.keys(c.byTag).forEach(t=>{
+    const s = c.byTag[t]/total;
+    if(s>0.35) out.push({name:t, share:s, type:'标签敞口'});
+  });
+  return {list:out, coverage: total>0 ? tagged/c.assets : 0};
+}
+
+/* ============ 渲染 ============ */
+function render(){
+  const c = compute();
+  renderKPI(c); renderActions(c); renderCat(c); renderAcc(c);
+  renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderPlans();
+  document.getElementById('mktVal').textContent = S.params.market || '—';
+  document.getElementById('hdsub').textContent =
+    S.holdings.length ? ('共 '+S.holdings.length+' 项持仓 · 数据只存在这台设备的浏览器里')
+                      : '数据只存在这台设备的浏览器里，不上传服务器';
+  const es=document.getElementById('emptyStart'); if(es) es.classList.toggle('hidden', S.holdings.length>0);
+}
+function renderKPI(c){
+  const g = totalGain(), t = twr(), dd = drawdown();
+  const bench = Number(S.params.benchChange)||0;
+  const gainCls = g && g.amount>0 ? 'up' : (g && g.amount<0 ? 'down' : '');
+  const twrCls = t==null ? '' : (t>=0 ? 'up' : 'down');
+  const cmpCls = t==null ? '' : (t*100 >= bench ? 'up' : 'down');
+  const ddCls = dd==null || dd==0 ? '' : (dd < 0 ? 'down' : 'up');
+  const gainTxt = g ? money(g.amount) : '—';
+  const twrTxt = t==null ? '—' : (t>=0?'+':'')+pct(t,2);
+  const cmpTxt = (t==null) ? '' :
+    (' · ' + (t*100 >= bench ? '跑赢基准 ' : '跑输基准 ') + Math.abs(t*100-bench).toFixed(1) + '个百分点');
+  const ddTxt = dd==null ? '—' : pct(Math.abs(dd),1) + (dd <= -(Number(S.params.drawdown)||5)/100 ? ' ⚠ 触发预警' : '');
+  const kpis = [
+    {label:'净资产', value:money(c.net), hint:'总资产 '+money(c.assets)+' − 负债 '+money(c.debt)},
+    {label:'记账以来收益', value:'<span class="'+gainCls+'">'+gainTxt+'</span>', hint:'<span class="'+twrCls+'">收益率 '+twrTxt+'</span><span class="'+cmpCls+'">'+cmpTxt+'</span>'},
+    {label:'回撤', value:'<span class="'+ddCls+'">'+ddTxt+'</span>', hint:'阈值 '+(S.params.drawdown||5)+'%'+(g?(' · 起始 '+g.firstDate):'')},
+    {label:'待处理', value:String(deviation(c).length), hint:'偏离/集中度需要关注项'}
+  ];
+  document.getElementById('kpis').innerHTML = kpis.map(k=>
+    `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="hint">${k.hint}</div></div>`).join('');
+}
+function renderActions(c){
+  const devs = deviation(c), conc = concentration(c), box=document.getElementById('actions');
+  if(!devs.length && !conc.list.length){
+    box.innerHTML = '<div class="tag ok">配置正常</div><div class="muted" style="margin-top:6px">没有偏离超阈值的类别，也没有集中度超线。保持现状即可。</div>';
+    return;
+  }
+  let h = '<ul class="tight">';
+  devs.forEach(d=>{
+    const cls = d.level==='红线'?'act':(d.level==='行动'?'warn':'info');
+    const dir = d.d>0 ? '超配，建议减少' : '低配，建议补入';
+    const amt = money(Math.abs(d.amount));
+    const group = S.holdings.filter(x=>x.cat===d.cat && x.cat!=='负债')
+      .sort((a,b)=>valueOf(b)-valueOf(a)).slice(0,2).map(x=>x.name).join(' / ');
+    h += `<li><span class="tag ${cls}">${d.level}</span> ${esc(d.cat)}：目标 ${pct(d.target,0)}，实际 ${pct(d.actual,1)}，${dir}约 ${amt}${group?('，优先调整 '+esc(group)):''}</li>`;
+  });
+  conc.list.forEach(x=>{
+    h += `<li><span class="tag act">红线</span> ${x.type}「${esc(x.name)}」占 ${pct(x.share,1)}，超过 35% 上限</li>`;
+  });
+  h += '</ul>';
+  if(conc.coverage < 0.6) h += `<div class="muted" style="margin-top:6px">标签覆盖率仅 ${pct(conc.coverage,0)}，行业/地区集中度可能被低估（可在持仓里补标签）。</div>`;
+  box.innerHTML = h;
+}
+function renderCat(c){
+  const total = c.assets>0?c.assets:1;
+  let h = '<table><tr><th>大类</th><th class="num">市值</th><th class="num">实际/目标</th><th style="width:32%">占比</th></tr>';
+  CATS.filter(x=>x!=='负债').forEach(cat=>{
+    const v=c.byCat[cat]||0, a=v/total, tg=Number(S.targets[cat])||0;
+    const w=Math.round(a*100), tw=Math.round(tg*100);
+    h += `<tr><td>${cat}</td><td class="num">${money(v)}</td><td class="num">${pct(a,1)} / ${pct(tg,0)}</td>
+      <td><div class="bar"><span style="width:${Math.min(w,100)}%"></span></div>
+      <div class="muted">目标线 ${tw}%</div></td></tr>`;
+  });
+  h += `<tr><td><b>合计</b></td><td class="num"><b>${money(c.assets)}</b></td><td class="num"></td><td></td></tr></table>`;
+  if(c.debt>0) h += `<div class="muted" style="margin-top:6px">负债 ${money(c.debt)}（已从净资产中扣除）</div>`;
+  h += `<div class="muted" style="margin-top:6px">目标方案：<b>${esc(S.meta.plan||'稳健型（权益55%）')}</b> · <a href="#" onclick="goSet();return false;">切换方案</a></div>`;
+  document.getElementById('catTable').innerHTML = h;
+}
+function renderAcc(c){
+  const rows = Object.keys(c.byAcc).map(k=>({k, v:c.byAcc[k]})).sort((a,b)=>b.v-a.v);
+  const total = c.assets>0?c.assets:1;
+  let h='<table><tr><th>账户</th><th class="num">市值</th><th class="num">占比</th></tr>';
+  rows.forEach(r=>{ h += `<tr><td>${esc(r.k)}</td><td class="num">${money(r.v)}</td><td class="num">${pct(r.v/total,1)}</td></tr>`; });
+  h += '</table>';
+  document.getElementById('accTable').innerHTML = rows.length? h : '<div class="muted">还没有数据</div>';
+}
+function renderTrend(){
+  const sn=S.snapshots, box=document.getElementById('trend');
+  if(sn.length<2){ box.innerHTML='<div class="muted">记录两天以上才会出现走势曲线（每天首次打开自动记一次快照）。</div>';
+    document.getElementById('twr').textContent=''; return; }
+  const vals=sn.map(s=>Number(s.net)||0), w=600, hh=90;
+  const mx=Math.max.apply(null,vals), mn=Math.min.apply(null,vals), rng=(mx-mn)||1;
+  const pts=vals.map((v,i)=>`${(i/(vals.length-1)*w).toFixed(1)},${(hh-(v-mn)/rng*hh).toFixed(1)}`).join(' ');
+  box.innerHTML = `<svg viewBox="0 0 ${w} ${hh}" style="width:100%;height:90px">
+    <polyline points="${pts}" fill="none" stroke="#4472C4" stroke-width="2"/></svg>
+    <div class="muted">${sn[0].date} → ${sn[sn.length-1].date}（${sn.length} 个快照）</div>`;
+  const t=twr(); document.getElementById('twr').textContent = '累计时间加权收益率：'+((t==null)?'—':((t>=0?'+':'')+pct(t,2)));
+}
+function renderHealth(c){
+  const days = S.meta.lastReconcile ? Math.round((Date.now()-new Date(S.meta.lastReconcile))/86400000) : null;
+  let noCode=0; S.holdings.filter(h=>h.cat!=='负债'&&!h.code).forEach(h=>noCode+=valueOf(h));
+  const h=[
+    `<div>上次对账：<b>${S.meta.lastReconcile||'从未'}</b>${days==null?'':('（'+days+' 天前）')} ${days!=null&&days>7?'<span class="tag warn">该对账了</span>':''}</div>`,
+    `<div>行情日期：<b>${S.meta.quoteDate||'无'}</b></div>`,
+    `<div>需手动维护价格的资产：<b>${money(noCode)}</b>（占总资产 ${pct(c.assets?noCode/c.assets:0,0)}，填了代码就能自动抓）</div>`
+  ].join('');
+  document.getElementById('health').innerHTML = h;
+}
+function renderHoldings(){
+  const t=document.getElementById('holdTable');
+  if(!S.holdings.length){ t.innerHTML='<tr><td class="muted">还没有持仓，去上面导入或新增</td></tr>'; return; }
+  let h='<tr><th>账户</th><th>大类</th><th>名称</th><th>代码</th><th>标签</th><th>币种</th><th class="num">数量</th><th class="num">价格</th><th class="num">市值</th><th class="num">成本单价</th><th></th></tr>';
+  S.holdings.forEach(x=>{
+    const p=priceOf(x);
+    h += `<tr>
+      <td>${esc(x.account)}</td><td>${esc(x.cat)}</td><td>${esc(x.name)}</td><td>${esc(x.code||'')}</td><td>${esc(x.tag||'')}</td><td>${esc(x.cur)}</td>
+      <td class="num"><input type="number" step="any" value="${Number(x.qty)||0}" onchange="editH('${x.id}','qty',this.value)" style="width:88px"></td>
+      <td class="num"><input type="number" step="any" value="${p||''}" placeholder="${x.code?'待抓':'—'}" onchange="editH('${x.id}','price',this.value)" style="width:88px"></td>
+      <td class="num">${money(valueOf(x))}</td>
+      <td class="num"><input type="number" step="any" value="${Number(x.cost)||''}" onchange="editH('${x.id}','cost',this.value)" style="width:88px"></td>
+      <td><button class="sm danger" onclick="delH('${x.id}')">删</button></td></tr>`;
+  });
+  t.innerHTML=h;
+}
+function renderTx(){
+  const t=document.getElementById('txTable');
+  const rows=S.transactions.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,50);
+  if(!rows.length){ t.innerHTML='<tr><td class="muted">还没有流水</td></tr>'; return; }
+  let h='<tr><th>日期</th><th>类型</th><th>账户</th><th>转入账户</th><th class="num">金额</th><th>关联资产</th><th>备注</th></tr>';
+  rows.forEach(x=>{ h+=`<tr><td>${x.date}</td><td>${x.type}</td><td>${esc(x.account||'')}</td><td>${esc(x.accountTo||'')}</td>
+    <td class="num">${money(x.amount)}</td><td>${esc(x.assetName||'')}</td><td>${esc(x.note||'')}</td></tr>`; });
+  t.innerHTML=h;
+}
+function renderRecon(c){
+  const t=document.getElementById('reconTable');
+  const accs=Object.keys(c.byAcc);
+  if(!accs.length){ t.innerHTML='<tr><td class="muted">还没有账户数据</td></tr>'; }
+  else{
+    let h='<tr><th>账户</th><th class="num">系统值</th><th class="num">实际余额</th><th class="num">差异</th><th></th></tr>';
+    accs.forEach((a,i)=>{
+      h+=`<tr><td>${esc(a)}</td><td class="num">${money(c.byAcc[a])}</td>
+        <td class="num"><input type="number" step="any" id="rec_${i}" style="width:110px"></td>
+        <td class="num" id="dif_${i}">—</td>
+        <td><button class="sm" onclick="calibAcc(${i})">校准</button></td></tr>`;
+    });
+    t.innerHTML=h;
+    accs.forEach((a,i)=>{
+      const el=document.getElementById('rec_'+i); if(el) el.oninput=()=>{
+        const d=document.getElementById('dif_'+i);
+        const diff=(Number(el.value)||0)-c.byAcc[a];
+        d.innerHTML=Math.abs(diff)<1?'<span class="tag ok">一致</span>':`<span class="tag ${diff>0?'warn':'act'}">${money(diff)}</span>`;
       };
-      persistState();
-      setCryptoSyncStatus('云端加密资产：已同步到 GitHub', 'ok');
-      setGitHubSyncStatus('GitHub 写回：已同步到云端，等待 Pages 刷新', 'ok');
-      closeCryptoModal();
-      toast('已同步到 GitHub');
-    }else{
-      if(!pendingCryptoEnvelope) throw new Error('没有待解锁的云端加密资产');
-      setCryptoModalStatus('正在解密...');
-      const fingerprint = envelopeFingerprint(pendingCryptoEnvelope);
-      const data = await decryptStateEnvelope(pendingCryptoEnvelope, password);
-      applyState(data, {preserveQuoteCache:true, cryptoFingerprint:fingerprint});
-      setCryptoSyncStatus('云端加密资产：已解锁并加载', 'ok');
-      closeCryptoModal();
-      loadRemoteQuoteCache();
-      fetchMarket();
-      toast('云端加密资产已加载');
-    }
-  }catch(err){
-    setCryptoModalStatus(err.message || '解密失败：密码错误、文件损坏或参数不兼容。', 'err');
-  }finally{
-    btn.disabled = false;
-  }
-}
-function startEncryptedExport(){
-  openCryptoModal('export');
-}
-function startGitHubSync(){
-  const cfg = getGitHubSyncConfig();
-  if(!cfg.token){
-    setGitHubSyncStatus('GitHub 写回：请先保存 fine-grained token', 'warn');
-    toast('请先保存 GitHub token');
-    return;
-  }
-  if(!S.rows.length){
-    toast('当前没有资产数据可同步');
-    return;
-  }
-  openCryptoModal('github-sync');
-}
-async function loadRemoteEncryptedPortfolio(manual=false){
-  if(location.protocol==='file:'){
-    setCryptoSyncStatus('云端加密资产：本地 file 模式不可自动加载，请使用 GitHub Pages 地址', 'warn');
-    if(manual) toast('请在 GitHub Pages 页面加载云端加密资产');
-    return;
-  }
-  try{
-    const res = await fetch(REMOTE_PORTFOLIO_URL+'?t='+Date.now(), {cache:'no-store'});
-    if(res.status===404){
-      setCryptoSyncStatus('云端加密资产：未配置，先导出 portfolio.encrypted.json 并提交到 data/ 目录', 'warn');
-      if(manual) toast('仓库里还没有 portfolio.encrypted.json');
-      return;
-    }
-    if(!res.ok) throw new Error('云端加密资产请求失败：HTTP '+res.status);
-    const envelope = await res.json();
-    validateEnvelope(envelope);
-    const fingerprint = envelopeFingerprint(envelope);
-    if(S.cryptoSync && S.cryptoSync.fingerprint===fingerprint && S.rows.length){
-      setCryptoSyncStatus('云端加密资产：当前浏览器已加载最新版', 'ok');
-      if(manual) toast('当前浏览器已是最新版');
-      return;
-    }
-    setCryptoSyncStatus('云端加密资产：已发现，等待解锁', 'warn');
-    openCryptoModal('load', envelope);
-  }catch(err){
-    setCryptoSyncStatus('云端加密资产：加载失败，'+(err.message || String(err)), 'err');
-    if(manual) toast('云端加密资产加载失败');
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-//  TABS
-// ══════════════════════════════════════════════════════════════
-function switchTab(tab){
-  const pane = document.getElementById('pane-'+tab);
-  if(!pane) return;
-  document.querySelectorAll('.tab-btn').forEach(btn=>btn.classList.toggle('active', btn.dataset.tab===tab));
-  document.querySelectorAll('.bottom-nav-btn').forEach(btn=>{
-    const activeTab = tab==='ownerA'||tab==='ownerB' ? 'overview' : tab;
-    btn.classList.toggle('active', btn.dataset.tab===activeTab);
-  });
-  document.querySelectorAll('.tab-pane').forEach(item=>item.classList.toggle('active', item===pane));
-  if(tab==='market') fetchMarket();
-  if(tab==='log') renderTransactionPanel();
-  window.scrollTo({top:0,behavior:'auto'});
-}
-document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>switchTab(btn.dataset.tab)));
-
-// ══════════════════════════════════════════════════════════════
-//  TABLE RENDERING
-// ══════════════════════════════════════════════════════════════
-// Build ordered column spec: CORE (4) → matched OPT → EXTRA
-function getColSpec(){
-  const optPresent = [];
-  const optKeys = Object.keys(OPT_ALIASES);
-  optKeys.forEach(k=>{
-    // include opt column if ANY row has that field
-    if(S.rows.some(r=>r[k]!==undefined && r[k]!==''))
-      optPresent.push(k);
-  });
-  // always show all opt cols so user can fill in
-  optKeys.forEach(k=>{ if(!optPresent.includes(k)) optPresent.push(k); });
-
-  const coreCols = [
-    {key:'owner',  label:'归属责任人', type:'core', w:'120px'},
-    {key:'name',   label:'资产名称',   type:'core', w:'150px'},
-    {key:'cat',    label:'资产大类',   type:'core', w:'110px'},
-    {key:'amount', label:'导入金额', type:'core', w:'130px'},
-  ];
-  const optCols = [
-    {key:'code',   label:'行情代码',   type:'opt', w:'110px'},
-    {key:'shares', label:'持有数量',   type:'opt', w:'100px'},
-    {key:'cost',   label:'买入成本',   type:'opt', w:'100px'},
-    {key:'nav',    label:'导入净值',   type:'opt', w:'90px'},
-  ];
-  const computedCols = [
-    {key:'_benchmark', label:'参照标的', type:'opt', w:'110px', readonly:true},
-    {key:'_quote',     label:'净值/涨跌', type:'opt', w:'90px', readonly:true},
-    {key:'_sync',      label:'同步金额', type:'opt', w:'120px', readonly:true},
-    {key:'_pnl',       label:'较导入', type:'opt', w:'100px', readonly:true},
-    {key:'_status',    label:'估值状态', type:'opt', w:'100px', readonly:true},
-  ];
-  const noteCols = [
-    {key:'note',   label:'备注',    type:'opt', w:'120px'},
-    {key:'redline', label:'何刚风险红线', type:'opt', w:'150px'},
-    {key:'analysisNote', label:'分析结论', type:'opt', w:'200px'},
-  ];
-  const extraCols = S.extraFields.map(ef=>({
-    key: 'extra:'+ef.key, label: ef.label, type:'extra', w:'120px'
-  }));
-  return [...coreCols, ...optCols, ...computedCols, ...noteCols, ...extraCols];
-}
-
-function renderTable(scope){
-  // scope: 'all' | 'A' | 'B'
-  const suffix = scope==='all'?'':scope;
-  const headId = suffix?'tblHead'+suffix:'tblHead';
-  const bodyId = suffix?'tblBody'+suffix:'tblBody';
-
-  const thead = document.getElementById(headId);
-  const tbody = document.getElementById(bodyId);
-  if(!thead||!tbody) return;
-
-  const cols = getColSpec();
-  const rows = scope==='all'? S.rows : S.rows.filter(r=>normalizeOwner(r.owner)===('责任人 '+scope));
-
-  // ── Header ──
-  thead.innerHTML = '<tr>'+
-    cols.map(c=>`<th class="col-${c.type}" style="min-width:${c.w}">${c.label}</th>`).join('')+
-    '<th style="width:40px"></th>'+
-  '</tr>';
-
-  // ── Body ──
-  let html = '';
-  rows.forEach(row=>{
-    const id = row.id;
-    html += `<tr data-id="${id}">`;
-    cols.forEach(c=>{
-      html += '<td>';
-      const valuation = getValuation(row);
-      if(c.key==='_benchmark'){
-        html += `<span class="price-cell">${valuation.benchmark||'—'}</span>`;
-      } else if(c.key==='_quote'){
-        html += `<span class="price-cell">${formatQuote(valuation.quote, valuation.status)}</span>`;
-      } else if(c.key==='_sync'){
-        html += `<span class="mv-cell">${fmt(valuation.amount)}</span>`;
-      } else if(c.key==='_pnl'){
-        const p = valuation.amount - (parseFloat(row.amount)||0);
-        const cls=p>0?'rise':p<0?'fall':'flat';
-        const pnl = Math.abs(p)<0.01?'—':fmtSigned(p);
-        html += `<span class="pnl-cell ${cls}">${pnl}</span>`;
-      } else if(c.key==='_status'){
-        html += `<span class="status-pill ${valuation.cls}">${valuation.status}</span>`;
-      } else if(c.key==='owner'){
-        const owner = normalizeOwner(row.owner);
-        html += `<select data-id="${id}" data-f="owner">
-          <option ${owner==='责任人 A'?'selected':''}>责任人 A</option>
-          <option ${owner==='责任人 B'?'selected':''}>责任人 B</option>
-        </select>`;
-      } else if(c.key==='cat'){
-        const currentCat = normalizeCategory(row.cat);
-        row.cat = currentCat;
-        html += `<select data-id="${id}" data-f="cat">`+
-          CATS.map(cat=>`<option ${currentCat===cat?'selected':''}>${cat}</option>`).join('')+
-          '</select>';
-      } else if(c.key==='amount'){
-        html += `<input type="number" data-id="${id}" data-f="amount" value="${row.amount||''}" placeholder="0" style="text-align:right">`;
-      } else if(c.key==='shares'||c.key==='cost'||c.key==='nav'){
-        html += `<input type="number" data-id="${id}" data-f="${c.key}" value="${row[c.key]||''}" placeholder="—">`;
-      } else if(c.key.startsWith('extra:')){
-        const ek = c.key.slice(6);
-        const val = (row.extra&&row.extra[ek])||'';
-        html += `<input data-id="${id}" data-f="extra:${ek}" value="${escHtml(val)}" placeholder="—">`;
-      } else if (c.key === 'analysisNote') {
-        const val = row[c.key] || '';
-        html += `<div class="analysis-cell-click" data-row-id="${id}" data-asset-name="${escHtml(row.name||'')}" data-analysis-note="${escHtml(val)}" onclick="openNoteEditModal(this)" style="cursor:pointer; min-height:30px; padding:6px; border:1px solid #cbd5e1; border-radius:4px; background:#f8fafc; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px;" title="点击编辑分析结论">${escHtml(val) || '<span style="color:#94a3b8">点击录入分析结论...</span>'}</div>`;
-      } else {
-        html += `<input data-id="${id}" data-f="${c.key}" value="${escHtml(row[c.key]||'')}" placeholder="—">`;
-      }
-      html += '</td>';
-    });
-    html += `<td><button class="del-btn" data-id="${id}">✕</button></td></tr>`;
-  });
-  tbody.innerHTML = html;
-}
-
-function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-// Event delegation for all tables
-['tblBody','tblBodyA','tblBodyB'].forEach(tbId=>{
-  document.getElementById(tbId).addEventListener('input', e=>{
-    const el = e.target.closest('[data-id][data-f]');
-    if(!el) return;
-    const id = parseInt(el.dataset.id);
-    const f  = el.dataset.f;
-    const row = S.rows.find(r=>r.id===id);
-    if(!row) return;
-    if(f.startsWith('extra:')){
-      const ek = f.slice(6);
-      if(!row.extra) row.extra={};
-      row.extra[ek] = el.value;
-    } else {
-      row[f] = el.value;
-    }
-    save();
-    renderAll(true); // light refresh
-  });
-  document.getElementById(tbId).addEventListener('click', e=>{
-    const btn = e.target.closest('.del-btn');
-    if(!btn) return;
-    const id = parseInt(btn.dataset.id);
-    S.rows = S.rows.filter(r=>r.id!==id);
-    save();
-    renderAll();
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-//  TRANSACTION LOG
-// ══════════════════════════════════════════════════════════════
-const TX_ACTIONS = {
-  deposit: {label:'外部转入', direction:1, kind:'external', hint:'转入会增加总资产，并计入较快照的外部资金变化。'},
-  withdraw:{label:'外部转出', direction:-1, kind:'external', hint:'转出会减少总资产，并计入较快照的外部资金变化。'},
-  income:  {label:'收益或分红', direction:1, kind:'performance', hint:'收益会增加资产金额，归入较快照的市场/收益变化。'},
-  expense: {label:'费用或损失', direction:-1, kind:'performance', hint:'费用会减少资产金额，归入较快照的市场/收益变化。'},
-  adjust:  {label:'余额校准', direction:0, kind:'adjustment', hint:'直接把资产改为指定余额，差额单独列为账务校准。'}
-};
-
-function transactionId(){
-  if(window.crypto && typeof crypto.randomUUID==='function') return crypto.randomUUID();
-  return 'tx_'+Date.now()+'_'+Math.random().toString(16).slice(2);
-}
-function isSharePricedRow(row){
-  if(!row || !(parseFloat(row.shares)>0)) return false;
-  return ['基金净值','导入净值','场内行情'].includes(getValuation(row).status);
-}
-function selectedTransactionRow(){
-  const select = document.getElementById('txAssetSelect');
-  if(!select || select.value==='__new__') return null;
-  const id = Number(select.value);
-  return S.rows.find(row=>Number(row.id)===id) || null;
-}
-function renderTransactionAssetOptions(){
-  const select = document.getElementById('txAssetSelect');
-  if(!select) return;
-  const previous = select.value;
-  const options = S.rows.slice().sort((a,b)=>{
-    const ownerDiff = String(a.owner||'').localeCompare(String(b.owner||''),'zh-CN');
-    return ownerDiff || String(a.name||'').localeCompare(String(b.name||''),'zh-CN');
-  }).map(row=>`<option value="${Number(row.id)}">${escHtml(row.owner||'未分配')} · ${escHtml(row.name||'未命名资产')}</option>`);
-  select.innerHTML = options.join('')+'<option value="__new__">+ 新建按金额维护的资产</option>';
-  if([...select.options].some(option=>option.value===previous)) select.value = previous;
-  else if(!S.rows.length) select.value = '__new__';
-}
-function updateTransactionForm(){
-  const actionKey = document.getElementById('txAction').value;
-  const action = TX_ACTIONS[actionKey] || TX_ACTIONS.deposit;
-  const row = selectedTransactionRow();
-  const isNew = document.getElementById('txAssetSelect').value==='__new__';
-  document.getElementById('txNewAssetFields').style.display = isNew ? 'block' : 'none';
-  document.getElementById('txAmountLabel').textContent = actionKey==='adjust' ? '校准后余额' : '变化金额';
-  document.getElementById('txAmountHint').textContent = action.hint;
-  const warning = document.getElementById('txValuationWarning');
-  let warningText = '';
-  if(row && isSharePricedRow(row)){
-    warningText = '该资产当前按“份额 × 净值/现价”估值。为避免金额口径冲突，请到资产明细更新持有数量；记一笔不会直接修改这类资产。';
-  }else if(isNew && !['deposit','adjust'].includes(actionKey)){
-    warningText = '新资产只能通过“外部转入”或“余额校准”建立，其他变化类型必须选择已有资产。';
-  }
-  warning.textContent = warningText;
-  warning.classList.toggle('show', Boolean(warningText));
-}
-function resetTransactionForm(){
-  document.getElementById('txAmount').value = '';
-  document.getElementById('txNote').value = '';
-  document.getElementById('txAssetName').value = '';
-  renderTransactionAssetOptions();
-  updateTransactionForm();
-}
-function recordTransaction(){
-  const actionKey = document.getElementById('txAction').value;
-  const action = TX_ACTIONS[actionKey];
-  const amountRaw = document.getElementById('txAmount').value;
-  const amount = Number(amountRaw);
-  if(!action) return;
-  if(!Number.isFinite(amount) || amount<0 || (actionKey!=='adjust' && amount<=0)){
-    toast(actionKey==='adjust' ? '请输入有效的校准后余额' : '请输入大于 0 的变化金额');
-    return;
-  }
-
-  let row = selectedTransactionRow();
-  let createdAsset = false;
-  if(!row){
-    if(!['deposit','adjust'].includes(actionKey)){
-      toast('新资产只能使用外部转入或余额校准建立');
-      return;
-    }
-    if(amount<=0){
-      toast('新资产的初始余额必须大于 0');
-      return;
-    }
-    const name = document.getElementById('txAssetName').value.trim();
-    const owner = normalizeOwner(document.getElementById('txOwner').value);
-    if(!name){ toast('请输入新资产名称'); return; }
-    row = {id:S.nextId++,owner,name,cat:normalizeCategory(document.getElementById('txCategory').value),amount:0,code:'',shares:'',cost:'',nav:'',benchmark:'',note:'',redline:'无',analysisNote:'',extra:{}};
-    S.rows.push(row);
-    createdAsset = true;
-  }
-  if(isSharePricedRow(row)){
-    if(createdAsset) S.rows = S.rows.filter(item=>item!==row);
-    toast('该资产按份额估值，请在资产明细更新持有数量');
-    return;
-  }
-
-  const beforeAmount = Number(row.amount)||0;
-  let afterAmount = actionKey==='adjust' ? amount : beforeAmount + action.direction*amount;
-  if(afterAmount < -0.005){
-    if(createdAsset) S.rows = S.rows.filter(item=>item!==row);
-    toast('变化金额超过当前余额，资产不能被扣成负数');
-    return;
-  }
-  afterAmount = Math.max(0, Math.round(afterAmount*100)/100);
-  const deltaAmount = Math.round((afterAmount-beforeAmount)*100)/100;
-  row.amount = afterAmount;
-  const occurredOn = document.getElementById('txDate').value || new Date().toISOString().slice(0,10);
-  const tx = {
-    id:transactionId(),
-    timestamp:new Date().toISOString(),
-    occurredOn,
-    action:actionKey,
-    owner:row.owner,
-    assetId:row.id,
-    assetName:row.name,
-    category:normalizeCategory(row.cat),
-    amount,
-    deltaAmount,
-    beforeAmount,
-    afterAmount,
-    flowImpact:action.kind==='external' ? deltaAmount : 0,
-    adjustmentImpact:action.kind==='adjustment' ? deltaAmount : 0,
-    createdAsset,
-    note:document.getElementById('txNote').value.trim()
-  };
-  S.transactions.unshift(tx);
-  S.transactions = S.transactions.slice(0,200);
-  save();
-  renderAll();
-  resetTransactionForm();
-  toast('已记录：'+action.label+' '+row.name+' '+fmtSigned(deltaAmount));
-}
-function renderTransactionHistory(){
-  const el = document.getElementById('txHistoryList');
-  const undoBtn = document.getElementById('undoTxBtn');
-  if(!el) return;
-  const transactions = Array.isArray(S.transactions) ? S.transactions : [];
-  if(undoBtn) undoBtn.disabled = !transactions.length;
-  if(!transactions.length){
-    el.innerHTML = '<div class="decision-empty">暂无记录。这里的记录会随加密资产一起跨设备同步。</div>';
-    return;
-  }
-  el.innerHTML = transactions.slice(0,30).map(tx=>{
-    const action = TX_ACTIONS[tx.action] || {label:'资产调整'};
-    const delta = Number(tx.deltaAmount)||0;
-    const cls = delta>0?'positive':delta<0?'negative':'neutral';
-    const when = [tx.occurredOn, tx.owner].filter(Boolean).join(' · ');
-    return `<div class="tx-row">
-      <div class="tx-type">${escHtml(action.label)}</div>
-      <div class="tx-main"><b>${escHtml(tx.assetName||'未命名资产')}</b><span>${escHtml(when)}${tx.note?' · '+escHtml(tx.note):''}</span></div>
-      <div class="tx-amount ${cls}">${fmtSigned(delta)}</div>
-    </div>`;
-  }).join('');
-}
-function renderTransactionPanel(){
-  const category = document.getElementById('txCategory');
-  if(category && !category.options.length) category.innerHTML = CATS.map(cat=>`<option>${cat}</option>`).join('');
-  const date = document.getElementById('txDate');
-  if(date && !date.value) date.value = new Date().toISOString().slice(0,10);
-  renderTransactionAssetOptions();
-  updateTransactionForm();
-  renderTransactionHistory();
-}
-function undoLatestTransaction(){
-  const tx = S.transactions && S.transactions[0];
-  if(!tx){ toast('暂无可撤销记录'); return; }
-  const row = S.rows.find(item=>Number(item.id)===Number(tx.assetId));
-  if(!row || row.owner!==tx.owner || row.name!==tx.assetName || Math.abs((Number(row.amount)||0)-Number(tx.afterAmount))>0.005){
-    alert('无法安全撤销：这笔记录之后资产已被导入或手动修改。请在资产明细中核对。');
-    return;
-  }
-  if(tx.createdAsset){
-    S.rows = S.rows.filter(item=>item!==row);
-  }else{
-    row.amount = Number(tx.beforeAmount)||0;
-  }
-  S.transactions.shift();
-  save();
-  renderAll();
-  renderTransactionPanel();
-  toast('已撤销最近一笔记录');
-}
-
-// ══════════════════════════════════════════════════════════════
-//  CHARTS
-// ══════════════════════════════════════════════════════════════
-function buildChartData(rows){
-  const totals = {};
-  CATS.forEach(c=>totals[c]=0);
-  rows.forEach(r=>{ const cat=normalizeCategory(r.cat); if(totals[cat]!==undefined) totals[cat]+=getRowValue(r); });
-  return {labels:Object.keys(totals),data:Object.values(totals)};
-}
-function summarizeCategories(rows){
-  const totalVal = rows.reduce((s,r)=>s+getRowValue(r),0);
-  return CATS.map((cat,i)=>{
-    const amount = rows.filter(r=>normalizeCategory(r.cat)===cat).reduce((s,r)=>s+getRowValue(r),0);
-    return {cat, amount, pct:totalVal?amount/totalVal*100:0, color:CAT_COLORS[i]};
-  });
-}
-function renderAllocationBars(elId, rows){
-  const el = document.getElementById(elId);
-  if(!el) return;
-  const data = summarizeCategories(rows);
-  if(!rows.length || !data.some(d=>d.amount>0)){
-    el.innerHTML = '<div class="alloc-empty">暂无可计算资产</div>';
-    return;
-  }
-  el.innerHTML = '<div class="alloc-list">'+data.map(d=>`
-    <div class="alloc-row">
-      <div class="alloc-name">${d.cat}</div>
-      <div class="alloc-bar"><div class="alloc-fill" style="width:${Math.min(d.pct,100)}%;background:${d.color}"></div></div>
-      <div class="alloc-num">${d.pct.toFixed(1)}% · ${fmt(d.amount)}</div>
-    </div>`).join('')+'</div>';
-}
-function renderOwnerShareBars(){
-  const el = document.getElementById('ownerShareBars');
-  if(!el) return;
-  const rowsA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A');
-  const rowsB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B');
-  const data = [
-    {name:'责任人 A', amount:rowsA.reduce((s,r)=>s+getRowValue(r),0), color:'#2563eb'},
-    {name:'责任人 B', amount:rowsB.reduce((s,r)=>s+getRowValue(r),0), color:'#d97706'}
-  ];
-  const totalVal = data.reduce((s,d)=>s+d.amount,0);
-  if(!totalVal){
-    el.innerHTML = '<div class="alloc-empty">暂无责任人资产</div>';
-    return;
-  }
-  el.innerHTML = '<div class="owner-share-list">'+data.map(d=>{
-    const pct = totalVal?d.amount/totalVal*100:0;
-    return `<div class="owner-share-row">
-      <div class="owner-share-name">${d.name}</div>
-      <div class="owner-share-bar"><div class="owner-share-fill" style="width:${pct}%;background:${d.color}"></div></div>
-      <div class="owner-share-num">${pct.toFixed(1)}% · ${fmt(d.amount)}</div>
-    </div>`;
-  }).join('')+'</div>';
-}
-function makeOrUpdateChart(id, labels, data, colors){
-  const canvas = document.getElementById(id);
-  if(!canvas) return;
-  if(typeof Chart === 'undefined'){ canvas.style.display='none'; return; }
-  canvas.style.display='';
-  const ctx = canvas.getContext('2d');
-  if(charts[id]){ charts[id].data.datasets[0].data=data; charts[id].update(); return; }
-  charts[id] = new Chart(ctx,{
-    type:'doughnut',
-    data:{labels, datasets:[{data, backgroundColor:colors, borderWidth:2, borderColor:'#fff'}]},
-    options:{responsive:true, plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:8}},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${fmt(ctx.raw)} (${ctx.raw&&total(data)?((ctx.raw/total(data))*100).toFixed(1)+'%':'0%'})`}}}, cutout:'58%'}
-  });
-}
-function total(arr){ return arr.reduce((a,b)=>a+b,0); }
-
-// ══════════════════════════════════════════════════════════════
-//  KPI CARDS
-// ══════════════════════════════════════════════════════════════
-function fmt(n){ return n===undefined||n===''||isNaN(n)?'—':'¥'+(+n).toLocaleString('zh-CN',{minimumFractionDigits:0,maximumFractionDigits:0}); }
-function fmtPct(n){ return isNaN(n)?'—':n.toFixed(1)+'%'; }
-function fmtDateTime(iso){
-  if(!iso) return '';
-  const d = new Date(iso);
-  if(isNaN(d.getTime())) return '';
-  return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-}
-function renderSnapshotInfo(){
-  const el = document.getElementById('snapshotInfo');
-  if(!el) return;
-  el.textContent = S.snapshot && S.snapshot.ts ? '上次快照 '+fmtDateTime(S.snapshot.ts) : '尚未确认快照';
-}
-
-function renderKPI(elId, rows, label){
-  const el = document.getElementById(elId);
-  if(!el) return;
-  const tot = rows.reduce((s,r)=>s+getRowValue(r),0);
-  const liquid = rows.filter(r=>normalizeCategory(r.cat)==='现金/存款').reduce((s,r)=>s+getRowValue(r),0);
-  const equity = rows.filter(r=>['基金/ETF','股票'].includes(normalizeCategory(r.cat))).reduce((s,r)=>s+getRowValue(r),0);
-  // max deviation
-  let maxDev=0;
-  // compute from totals per cat
-  const targets = S.targets[label.toLowerCase()==='合并'?'all':label.replace('责任人 ','')];
-  if(targets && tot>0){
-    const tsum = Object.values(targets).reduce((a,b)=>a+b,0);
-    const scale = tsum>0 ? 100/tsum : 0;
-    CATS.forEach(c=>{
-      const actual = rows.filter(r=>normalizeCategory(r.cat)===c).reduce((s,r)=>s+getRowValue(r),0)/tot*100;
-      const tgt = (targets[c]||0)*scale;
-      maxDev = Math.max(maxDev, Math.abs(actual-tgt));
     });
   }
-  el.innerHTML = [
-    {l:'总资产', v:fmt(tot), s:label},
-    {l:'资产条目', v:rows.length+'条', s:''},
-    {l:'流动性占比', v:fmtPct(tot?liquid/tot*100:0), s:'现金/存款'},
-    {l:'权益类占比', v:fmtPct(tot?equity/tot*100:0), s:'基金+股票'},
-    {l:'最大类别偏离', v:fmtPct(maxDev), s:'与目标比较'},
-  ].map(k=>`<div class="kpi-card"><div class="label">${k.l}</div><div class="val">${k.v}</div><div class="sub">${k.s}</div></div>`).join('');
+  document.getElementById('reconState').textContent = S.meta.lastReconcile?('上次对账：'+S.meta.lastReconcile):'还没对过账';
+  // 归因
+  const since = S.meta.lastReconcile || (S.snapshots.length? S.snapshots[0].date : today());
+  const flow = externalFlow(today(), since);
+  const startNet = S.snapshots.length? Number(S.snapshots[0].net)||0 : c.net;
+  document.getElementById('attrib').innerHTML =
+    `<div class="muted">起始 ${since} → 今天：净资产 ${money(startNet)} → ${money(c.net)}</div>
+     <ul class="tight"><li>外部资金进出：${money(flow)}</li>
+     <li>市场涨跌贡献：${money(c.net - startNet - flow)}</li></ul>`;
 }
-
-function buildExposureGroups(){
-  const groups = {};
-  S.rows.forEach(row=>{
-    const v = getValuation(row);
-    const key = v.benchmark || normalizeCategory(row.cat) || '未归类';
-    if(!groups[key]) groups[key] = {name:key, count:0, owners:new Set(), base:0, value:0, statuses:{}, missing:0};
-    const g = groups[key];
-    g.count++;
-    g.owners.add(row.owner||'未分配');
-    g.base += parseFloat(row.amount)||0;
-    g.value += v.amount;
-    g.statuses[v.status] = (g.statuses[v.status]||0)+1;
-    if(v.cls==='warn'||v.cls==='bad') g.missing++;
+function renderTargets(){
+  const box=document.getElementById('targetBox');
+  const cur=S.meta.plan||'稳健型（权益55%）';
+  const matched=PLANS.find(p=>p.name===cur);
+  let h='<div class="row" style="margin-bottom:8px">';
+  PLANS.forEach(p=>{
+    h+=`<button class="${p.name===cur?'':'ghost'}" onclick="applyPlan('${p.key}')">${p.name}</button>`;
   });
-  return Object.values(groups).sort((a,b)=>b.value-a.value);
-}
-
-function getSnapshotDelta(){
-  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  if(!S.snapshot || !Number.isFinite(Number(S.snapshot.total))) return {has:false,total:totalVal,diff:0,pct:0,label:'尚未确认快照',ts:'',externalFlow:0,adjustment:0,marketImpact:0};
-  const diff = totalVal - S.snapshot.total;
-  const snapshotTime = new Date(S.snapshot.ts||0).getTime();
-  const recent = (S.transactions||[]).filter(tx=>new Date(tx.timestamp||0).getTime()>snapshotTime);
-  const externalFlow = recent.reduce((sum,tx)=>sum+(Number(tx.flowImpact)||0),0);
-  const adjustment = recent.reduce((sum,tx)=>sum+(Number(tx.adjustmentImpact)||0),0);
-  const marketImpact = diff-externalFlow-adjustment;
-  return {has:true,total:totalVal,diff,pct:S.snapshot.total?diff/S.snapshot.total*100:0,label:'较上次快照',ts:S.snapshot.ts||'',externalFlow,adjustment,marketImpact};
-}
-function getValuationIssue(row, valuation=getValuation(row)){
-  const cat = normalizeCategory(row.cat);
-  if(valuation.status==='沿用导入金额'){
-    return {key:'fixed_carry', level:'info', title:'固收/理财沿用导入金额', action:'这类资产可不做日内估值，按导入金额进入合并金额'};
-  }
-  if(!['warn','bad'].includes(valuation.cls)) return null;
-  if(valuation.benchmark){
-    return {key:'benchmark_move', level:'warn', title:'缺参照涨跌', action:'在估值缓存 benchmarks 中补当日涨跌'};
-  }
-  if(cat==='基金/ETF' && row.code && !isRealtimeCode(row.code)){
-    return {key:'fund_nav', level:'warn', title:'基金缺净值', action:'在估值缓存 funds 中补单位净值'};
-  }
-  if(isRealtimeCode(row.code)){
-    return {key:'realtime_quote', level:'warn', title:'交易所行情未获取', action:'刷新行情或稍后再试'};
-  }
-  return {key:'missing_rule', level:'warn', title:'缺行情代码/参照标的', action:'补行情代码、基金净值，或让名称包含指数关键词'};
-}
-function getValuationQualityStats(){
-  const rows = S.rows.map(row=>({row, valuation:getValuation(row)}));
-  const priced = rows.filter(x=>['ok','est'].includes(x.valuation.cls) && x.valuation.status!=='沿用导入金额').length;
-  const carry = rows.filter(x=>x.valuation.status==='沿用导入金额').length;
-  const missing = rows.filter(x=>{
-    const issue = getValuationIssue(x.row, x.valuation);
-    return issue && issue.level==='warn';
-  }).length;
-  const usable = priced + carry;
-  return {
-    total: rows.length,
-    priced, carry, missing, usable,
-    coverage: rows.length ? Math.round(usable/rows.length*100) : 0,
-    totalVal: rows.reduce((s,x)=>s+x.valuation.amount,0),
-    baseVal: S.rows.reduce((s,r)=>s+(parseFloat(r.amount)||0),0)
-  };
-}
-function buildValuationIssueGroups(){
-  const groups = {};
-  S.rows.forEach(row=>{
-    const valuation = getValuation(row);
-    const issue = getValuationIssue(row, valuation);
-    if(!issue) return;
-    if(!groups[issue.key]) groups[issue.key] = {title:issue.title, action:issue.action, level:issue.level, count:0, amount:0, examples:[]};
-    const g = groups[issue.key];
-    g.count++;
-    g.amount += valuation.amount;
-    if(g.examples.length<3) g.examples.push(row.name||row.code||'未命名资产');
+  h+=`<button class="ghost" onclick="planByAge()">按年龄计算</button>
+      <button class="ghost" onclick="resetToPlan()">恢复原方案</button></div>
+      <div class="muted" style="margin-bottom:10px">当前方案：<b>${esc(cur)}</b>${S.meta.planDesc?(' — '+esc(S.meta.planDesc)):(matched?' — '+esc(matched.desc):'')}</div>
+      <div class="muted" style="margin-bottom:10px">下面可以逐项手动改；一改就变成「自定义」方案，原来的方案不会被覆盖。</div>
+      <table><tr><th>大类</th><th class="num">目标比例</th></tr>`;
+  CATS.filter(x=>x!=='负债').forEach(c=>{
+    h+=`<tr><td>${c}</td><td class="num"><input type="number" step="any" value="${(Number(S.targets[c])||0)*100}" onchange="setTarget('${c}',this.value)" style="width:90px"> %</td></tr>`;
   });
-  return Object.values(groups).sort((a,b)=>{
-    const aw = a.level==='warn'?1:0, bw = b.level==='warn'?1:0;
-    return bw-aw || b.amount-a.amount;
+  h+='</table>'; box.innerHTML=h;
+  const sum=Object.keys(S.targets).reduce((a,k)=>a+(Number(S.targets[k])||0),0);
+  document.getElementById('targetSum').textContent='当前合计 '+pct(sum,0)+'（不等于 100% 也能用，系统自动归一化）';
+}
+function applyPlan(key){
+  const p=PLANS.find(x=>x.key===key); if(!p) return;
+  const zero={}; CATS.forEach(c=>zero[c]=0);
+  S.targets=Object.assign(zero, p.t);
+  S.meta.plan=p.name; S.meta.planBase=p.name; S.meta.planDesc=p.desc;
+  save(); renderTargets(); const c=compute(); renderKPI(c); renderActions(c); renderCat(c); flash('已套用：'+p.name);
+}
+function planByAge(){
+  const age=prompt('你今年多少岁？（权益比例按 100 − 年龄 计算，区间 20%~90%）');
+  const a=Number(age); if(!a||a<10||a>100){ flash('年龄没填对'); return; }
+  const eq=Math.max(0.20, Math.min(0.90, (100-a)/100));
+  const rest=1-eq;
+  S.targets={'现金存款':rest*0.2,'固收理财':rest*0.7,'基金ETF':eq*0.6,'股票':eq*0.4,'另类（黄金等）':rest*0.1,'其他':0};
+  S.meta.plan='年龄法则（'+a+'岁，权益'+Math.round(eq*100)+'%）';
+  S.meta.planBase=S.meta.plan;
+  S.meta.planDesc='年龄越小权益越高，随年龄自动下降；权益部分按 股票4:基金6 拆分';
+  save(); renderTargets(); const c=compute(); renderKPI(c); renderActions(c); renderCat(c); flash('已按年龄生成');
+}
+function resetToPlan(){
+  const base=PLANS.find(p=>p.name===S.meta.planBase);
+  if(!base){ flash('当前不是内置方案，直接改下面的数字即可'); return; }
+  applyPlan(base.key);
+}
+
+/* ============ 操作 ============ */
+function setTarget(cat, v){
+  S.targets[cat]=(Number(v)||0)/100;
+  const base=S.meta.planBase||'稳健型（权益55%）';
+  if(S.meta.plan!=='自定义（改自 '+base+'）'){ S.meta.plan='自定义（改自 '+base+'）'; S.meta.planDesc='在「'+base+'」基础上手动调整'; }
+  save(); renderTargets(); const c=compute(); renderKPI(c); renderActions(c); renderCat(c);
+}
+function editH(id, field, v){
+  const h=S.holdings.find(x=>x.id===id); if(!h) return;
+  if(field==='price'){ if(h.code){ S.quotes[h.code]={price:Number(v)||0}; S.meta.quoteDate=today(); } else { h.qty=Number(v)||0; } }
+  else h[field]=Number(v)||0;
+  save(); render();
+}
+function delH(id){ if(!confirm('删除这条持仓？')) return; S.holdings=S.holdings.filter(x=>x.id!==id); save(); render(); }
+function addHolding(){
+  const acc=document.getElementById('nAcc').value.trim(), name=document.getElementById('nName').value.trim();
+  if(!acc||!name){ flash('账户和名称必填'); return; }
+  S.holdings.push({id:'h'+Date.now(), account:acc, cat:document.getElementById('nCat').value, name:name,
+    code:document.getElementById('nCode').value.trim(), tag:document.getElementById('nTag').value.trim(),
+    cur:document.getElementById('nCur').value, qty:Number(document.getElementById('nQty').value)||0,
+    cost:Number(document.getElementById('nCost').value)||0});
+  save(); render(); flash('已添加');
+  ['nAcc','nName','nCode','nTag','nQty','nCost'].forEach(i=>document.getElementById(i).value='');
+}
+function addTx(){
+  const amt=Number(document.getElementById('tAmt').value)||0;
+  const type=document.getElementById('tType').value;
+  const acc=document.getElementById('tAcc').value.trim();
+  if(!amt||!acc){ flash('金额和账户必填'); return; }
+  const assetId=document.getElementById('tAsset').value;
+  const h=S.holdings.find(x=>x.id===assetId);
+  const tx={id:'t'+Date.now(), date:document.getElementById('tDate').value||today(), type:type,
+    account:acc, accountTo:document.getElementById('tAcc2').value.trim(), amount:amt,
+    assetId:assetId||'', assetName:h?h.name:'', note:document.getElementById('tNote').value.trim(), prevQty:h?h.qty:null};
+  if(document.getElementById('tSync').checked && h){
+    const unit = priceOf(h)>0? priceOf(h) : 1;
+    h.qty = (Number(h.qty)||0) + (type==='转出'? -1: 1) * (amt/unit);
+    tx.newQty = h.qty;
+  }
+  if(type==='校准' && h){ tx.prevQty=h.qty; h.qty=amt; tx.newQty=amt; }
+  S.transactions.push(tx); save(); render(); flash('已记录');
+  ['tAmt','tNote','tAcc','tAcc2'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('tSync').checked=false;
+}
+function undoTx(){
+  const t=S.transactions[S.transactions.length-1];
+  if(!t){ flash('没有可撤销的流水'); return; }
+  if(!confirm('撤销最近一笔：'+t.date+' '+t.type+' '+money(t.amount)+'？')) return;
+  if(t.assetId){
+    const h=S.holdings.find(x=>x.id===t.assetId);
+    if(h && t.prevQty!=null) h.qty=t.prevQty;
+  }
+  if(t.fromId){
+    const fh=S.holdings.find(x=>x.id===t.fromId);
+    if(fh && t.fromPrevQty!=null) fh.qty=t.fromPrevQty;
+  }
+  if(t.planId){
+    const p=S.plans.find(x=>x.id===t.planId);
+    if(p && p.executed){ const i=p.executed.lastIndexOf(t.date); if(i>=0) p.executed.splice(i,1); }
+  }
+  S.transactions.pop(); save(); render(); flash('已撤销');
+}
+function calibAcc(i){
+  const c=compute(); const accs=Object.keys(c.byAcc); const acc=accs[i];
+  const el=document.getElementById('rec_'+i);
+  const v=Number(el&&el.value); if(!v){ flash('先填实际余额'); return; }
+  const diff=v-c.byAcc[acc]; if(Math.abs(diff)<1){ flash('已经一致'); return; }
+  if(!confirm('把「'+acc+'」从 '+money(c.byAcc[acc])+' 校准为 '+money(v)+'（差异 '+money(diff)+'）？')) return;
+  const group=S.holdings.filter(h=>(h.account||'未分类')===acc && h.cat!=='负债');
+  const base=group.reduce((a,h)=>a+valueOf(h),0)||1;
+  group.forEach(h=>{ h.qty = (Number(h.qty)||0) * (v/base); });
+  S.transactions.push({id:'t'+Date.now(), date:today(), type:'校准', account:acc, amount:diff, assetName:'', note:'对账校准'});
+  save(); render(); flash('已校准');
+}
+/* ============ 定投 ============ */
+function d2s(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function s2d(s){ const p=String(s||'').split('-').map(Number); return new Date(p[0], (p[1]||1)-1, p[2]||1); }
+function addDaysStr(s,n){ const d=s2d(s); d.setDate(d.getDate()+n); return d2s(d); }
+function monthEnd(y,m){ return new Date(y, m+1, 0).getDate(); }
+function freqLabel(p){
+  const f=p.freq, d=Number(p.day)||1;
+  if(f==='weekly') return '每周' + '一二三四五六日'[(d-1+7)%7];
+  if(f==='biweekly') return '每两周';
+  if(f==='quarterly') return '每季 '+d+' 号';
+  return '每月 '+d+' 号';
+}
+// 列出从起始日到 until（默认今天）之间所有应执行的期次
+function dueDates(p, until){
+  const out=[], lim = s2d((p.end && (!until || p.end < until)) ? p.end : (until||today()));
+  const s = s2d(p.start||today()), day = Number(p.day)||1;
+  if(p.freq==='biweekly'){
+    let cur=new Date(s);
+    while(cur<=lim && out.length<600){ if(cur>=s) out.push(d2s(cur)); cur=new Date(cur.getTime()+14*86400000); }
+    return out;
+  }
+  if(p.freq==='weekly'){
+    let cur=new Date(s);
+    while(cur.getDay()!==(day%7)) cur=new Date(cur.getTime()+86400000);
+    while(cur<=lim && out.length<600){ out.push(d2s(cur)); cur=new Date(cur.getTime()+7*86400000); }
+    return out;
+  }
+  const step = p.freq==='quarterly' ? 3 : 1;
+  let y=s.getFullYear(), m=s.getMonth();
+  for(let i=0;i<600;i++){
+    const cur = new Date(y, m, Math.min(day, monthEnd(y,m)));
+    if(cur>lim) break;
+    if(cur>=s) out.push(d2s(cur));
+    m+=step; while(m>11){ m-=12; y++; }
+  }
+  return out;
+}
+function nextDue(p){
+  const done=(p.executed||[]).concat(p.skipped||[]);
+  return dueDates(p, addDaysStr(today(),400)).find(d=>d>=today() && !done.includes(d)) || '';
+}
+function runPlanOnce(p, date){
+  const amt=Number(p.amount)||0; if(amt<=0) return;
+  const h=S.holdings.find(x=>x.id===p.assetId);
+  const from=S.holdings.find(x=>x.id===p.fromId);
+  const unit = (h && priceOf(h)>0) ? priceOf(h) : 1;
+  const fUnit = (from && priceOf(from)>0) ? priceOf(from) : 1;
+  const prevQty = h? Number(h.qty)||0 : null;
+  const fromPrev = from? Number(from.qty)||0 : null;
+  if(h) h.qty = prevQty + amt/unit;
+  if(from) from.qty = fromPrev - amt/fUnit;
+  S.transactions.push({id:'tp'+Date.now()+Math.random().toString(36).slice(2,6), date:date, type:'定投',
+    account: from? (from.account||'') : '新增资金', accountTo:'', amount:amt,
+    assetId: p.assetId||'', assetName: h? h.name : (p.assetName||''),
+    note:(p.name||'定投')+' 自动入账', planId:p.id, external: !from,
+    prevQty: prevQty, fromId: p.fromId||'', fromPrevQty: fromPrev, newQty: h? h.qty : null});
+  p.executed = p.executed||[]; p.executed.push(date);
+}
+function syncPlans(quiet){
+  S.plans = S.plans||[];
+  let n=0;
+  S.plans.forEach(p=>{
+    if(p.status!=='active') return;
+    const done=(p.executed||[]).concat(p.skipped||[]);
+    const pend=dueDates(p).filter(d=>!done.includes(d));
+    if(!pend.length) return;
+    const run=pend.slice(-24);
+    if(pend.length>24 && !quiet) flash('「'+(p.name||'定投')+'」有 '+pend.length+' 期未记，本次只补最近 24 期');
+    run.forEach(d=>{ runPlanOnce(p,d); n++; });
   });
+  if(n){ save(); render(); flash('已自动补记 '+n+' 期定投（见「记账 → 流水」，可撤销）'); }
+  else if(!quiet){ flash('没有到期的定投'); }
+  const st=document.getElementById('planSyncState');
+  if(st) st.textContent = n? ('本次补记 '+n+' 期，已写入流水与持仓') : '所有到期期次都已入账';
+  return n;
 }
-function buildActionItems(){
-  const items = [];
-  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  
-  // Layer 1: Data Quality Check
-  const quality = getValuationQualityStats();
-  if (quality.missing > 0) {
-    items.push({
-      level: 'warn',
-      tier: '数据质量',
-      title: `估值数据存在缺口 (${quality.missing} 条)`,
-      detail: '建议补齐基金净值或参照标的涨跌，确保合并总资产可信。'
-    });
-  }
-
-  // Layer 2: Hard Risk Redlines (Governance, Finance, Negatives)
-  const redlineAssets = S.rows.filter(r => r.redline && r.redline !== '无');
-  redlineAssets.forEach(r => {
-    items.push({
-      level: 'risk',
-      tier: '风险红线',
-      title: `触发【${r.redline}】: ${r.name || r.code}`,
-      detail: `根据何刚一票否决规则，触发红线资产建议暂停加仓，复核并制定退出计划。分析结论: ${r.analysisNote || '未填写结论'}`
-    });
+function renderPlans(){
+  const t=document.getElementById('planTable'), box=document.getElementById('planHome'), card=document.getElementById('planCard');
+  if(!t) return;
+  const list=S.plans||[];
+  if(card) card.classList.toggle('hidden', !list.length);
+  if(!list.length){ t.innerHTML='<tr><td class="muted">还没有定投计划，在下面新增一个</td></tr>'; if(box) box.innerHTML=''; return; }
+  let h='<tr><th>计划</th><th>买入标的</th><th>扣款</th><th class="num">每期</th><th>频率</th><th>下次扣款</th><th class="num">已投</th><th>状态</th><th></th></tr>';
+  list.forEach(p=>{
+    const mine=S.transactions.filter(x=>x.planId===p.id);
+    const invest=mine.reduce((a,x)=>a+(Number(x.amount)||0),0);
+    const nx = p.status==='active' ? (nextDue(p)||'—') : '—';
+    const soon = p.status==='active' && nx!=='—' && nx<=addDaysStr(today(),7);
+    h+=`<tr><td>${esc(p.name||'定投')}</td><td>${esc(p.assetName||'')}</td><td>${esc(p.fromName||'新增资金')}</td>
+      <td class="num">${money(p.amount)}</td><td>${freqLabel(p)}</td>
+      <td>${nx}${soon?' <span class="tag warn">即将</span>':''}</td>
+      <td class="num">${mine.length} 期 / ${money(invest)}</td>
+      <td>${p.status==='active'?'<span class="tag ok">进行中</span>':'<span class="tag">已暂停</span>'}</td>
+      <td><button class="sm" onclick="togglePlan('${p.id}')">${p.status==='active'?'暂停':'继续'}</button>
+      <button class="sm ghost" onclick="skipPlan('${p.id}')">跳过本期</button>
+      <button class="sm danger" onclick="delPlan('${p.id}')">删</button></td></tr>`;
   });
-
-  // Layer 3: Portfolio Constraints (Concentration, Overlaps, Allocations)
-  const groups = buildExposureGroups();
-  groups.forEach(g => {
-    if (totalVal && (g.value / totalVal) > 0.35) {
-      items.push({
-        level: 'adjust',
-        tier: '组合约束',
-        title: `单一敞口超限: ${g.name} (${(g.value/totalVal*100).toFixed(1)}%)`,
-        detail: `单一行业或参照标的超过35%配置红线，建议通过再平衡工具进行分批减配。`
-      });
-    }
+  t.innerHTML=h;
+  if(box){
+    const act=list.filter(p=>p.status==='active');
+    const monthStart=today().slice(0,8)+'01';
+    const mInvest=S.transactions.filter(x=>x.type==='定投' && x.date>=monthStart).reduce((a,x)=>a+(Number(x.amount)||0),0);
+    const upcoming=act.reduce((a,p)=>a+dueDates(p, addDaysStr(today(),30)).filter(d=>d>=today() && !(p.executed||[]).concat(p.skipped||[]).includes(d)).length*(Number(p.amount)||0),0);
+    let bx=`<div class="row"><div><span class="muted">进行中计划</span><div>${act.length} 个</div></div>
+      <div><span class="muted">本月已投</span><div>${money(mInvest)}</div></div>
+      <div><span class="muted">未来 30 天待投</span><div>${money(upcoming)}</div></div></div>`;
+    const soon=act.map(p=>({p:p, d:nextDue(p)})).filter(x=>x.d && x.d<=addDaysStr(today(),7)).sort((a,b)=>a.d.localeCompare(b.d));
+    bx += soon.length ? ('<ul class="tight">'+soon.map(x=>`<li><span class="tag info">${x.d}</span> ${esc(x.p.name||'定投')} 扣款 ${money(x.p.amount)}（${esc(x.p.fromName||'新增资金')}）</li>`).join('')+'</ul>')
+      : '<div class="muted" style="margin-top:6px">未来 7 天没有到期定投。</div>';
+    box.innerHTML=bx;
+  }
+}
+function onFreqChange(){
+  const f=document.getElementById('pFreq').value;
+  document.getElementById('pDayWd').classList.toggle('hidden', f!=='weekly');
+  document.getElementById('pDayNum').classList.toggle('hidden', f==='weekly'||f==='biweekly');
+  document.getElementById('pFreqHint').textContent =
+    f==='weekly' ? '每周固定星期扣款。' :
+    f==='biweekly' ? '从起始日起每 14 天一次，不需要填日期。' :
+    f==='quarterly' ? '每 3 个月扣一次，填 1–31 号；当月没有该日期取月末。' :
+    '每月固定日期扣款；当月没有该日期时自动取月末（如 31 号在 2 月会取 28/29 号）。';
+}
+function addPlan(){
+  const assetId=document.getElementById('pAsset').value;
+  const h=S.holdings.find(x=>x.id===assetId);
+  const fromId=document.getElementById('pFrom').value;
+  const from=S.holdings.find(x=>x.id===fromId);
+  const amt=Number(document.getElementById('pAmt').value)||0;
+  if(!assetId || !amt){ flash('买入标的和每期金额必填'); return; }
+  const freq=document.getElementById('pFreq').value;
+  const start=document.getElementById('pStart').value||today();
+  const day = freq==='weekly' ? Number(document.getElementById('pDayWd').value)
+    : (freq==='biweekly' ? 1 : (Number(document.getElementById('pDayNum').value)||Math.min(s2d(start).getDate(),28)));
+  const p={id:'p'+Date.now(), name:document.getElementById('pName').value.trim()||(h?h.name:'定投'),
+    assetId:assetId, assetName:h?h.name:'', fromId:fromId||'', fromName: from? (from.account||'') : '新增资金',
+    amount:amt, freq:freq, day:day, start:start, end:document.getElementById('pEnd').value||'',
+    status:'active', executed:[], skipped:[]};
+  S.plans.push(p); syncPlans(true); save(); render(); flash('已添加，到期自动入账');
+}
+function togglePlan(id){ const p=S.plans.find(x=>x.id===id); if(!p) return;
+  p.status = p.status==='active' ? 'paused' : 'active'; save(); render(); flash(p.status==='active'?'已继续':'已暂停'); }
+function skipPlan(id){ const p=S.plans.find(x=>x.id===id); if(!p) return;
+  const d=nextDue(p); if(!d){ flash('没有待执行的期次'); return; }
+  if(!confirm('跳过 '+d+' 这一期？不会记流水、不动持仓。')) return;
+  p.skipped=p.skipped||[]; p.skipped.push(d); save(); render(); flash('已跳过'); }
+function delPlan(id){ const p=S.plans.find(x=>x.id===id); if(!p) return;
+  if(!confirm('删除计划「'+(p.name||'定投')+'」？已产生的流水和持仓变化会保留（可在记账页撤销）。')) return;
+  S.plans=S.plans.filter(x=>x.id!==id); save(); render(); }
+function refreshPlanSelects(){
+  const a=document.getElementById('pAsset'), f=document.getElementById('pFrom');
+  if(!a||!f) return;
+  const ca=a.value, cf=f.value;
+  const opts=S.holdings.filter(h=>h.cat!=='负债');
+  a.innerHTML= opts.length? opts.map(h=>`<option value="${h.id}">买入：${esc(h.account)} / ${esc(h.name)}</option>`).join('') : '<option value="">（先在持仓页添加资产）</option>';
+  f.innerHTML= '<option value="">新增资金（外部转入）</option>'+opts.map(h=>`<option value="${h.id}">扣款：${esc(h.account)} / ${esc(h.name)}</option>`).join('');
+  a.value=ca; f.value=cf;
+}
+function finishRecon(){ S.meta.lastReconcile=today(); save(); render(); flash('已记录对账日期'); }
+function saveParams(){
+  S.params.benchmark=document.getElementById('pBench').value;
+  S.params.benchChange=Number(document.getElementById('pBenchChg').value)||0;
+  S.params.drawdown=Number(document.getElementById('pDD').value)||5;
+  S.params.devAbs=Number(document.getElementById('pDev').value)||5;
+  S.params.market=document.getElementById('pMkt').value;
+  S.params.fx={CNY:1, USD:Number(document.getElementById('pUSD').value)||7.1, HKD:Number(document.getElementById('pHKD').value)||0.92};
+  save(); render(); flash('参数已保存');
+}
+function applyQuotes(){
+  const txt=document.getElementById('quoteBox').value.trim(); if(!txt){ flash('先粘贴行情'); return; }
+  let n=0; txt.split(/\n+/).forEach(line=>{
+    const m=line.trim().split(/[\s,，\t]+/); if(m.length<2) return;
+    const p=Number(m[1]); if(!isNaN(p)&&p>0){ S.quotes[m[0]]={price:p}; n++; }
   });
-
-  // Check single stock threshold (15% rule for equity)
-  S.rows.forEach(r => {
-    const rval = getRowValue(r);
-    if (totalVal && r.cat === '股票' && (rval / totalVal) > 0.15) {
-      items.push({
-        level: 'adjust',
-        tier: '组合约束',
-        title: `个股比例超限: ${r.name || r.code} (${(rval/totalVal*100).toFixed(1)}%)`,
-        detail: `单一股票占比超过 15%，触碰持仓上限约束，建议复核基本面或分批调仓。`
-      });
-    }
-  });
-
-  // Layer 4: Fundamental Change / Strategic Rebalancing suggestions
-  if(!S.snapshot) {
-    items.push({
-      level: 'observe',
-      tier: '日常观察',
-      title: '日常比较快照未确认',
-      detail: '点击右上角“确认快照”以建立日常基准，监控资产日内真实偏离。'
-    });
-  } else {
-    // Check if target allocation is offset significantly (>5%)
-    CATS.forEach(cat => {
-      const actual = S.rows.filter(r => normalizeCategory(r.cat)===cat).reduce((s,r)=>s+getRowValue(r),0);
-      const actPct = totalVal ? actual/totalVal*100 : 0;
-      const targetKey = 'all';
-      const targets = S.targets[targetKey];
-      const tsum = Object.values(targets).reduce((a,b)=>a+b,0);
-      const scale = tsum>0 ? 100/tsum : 0;
-      const tgt = (targets[cat]||0)*scale;
-      const diff = actPct - tgt;
-      if (Math.abs(diff) > 5) {
-        items.push({
-          level: 'review',
-          tier: '大类平衡',
-          title: `大类偏离过大: ${cat} 偏离 ${diff.toFixed(1)}%`,
-          detail: `当前配置 ${actPct.toFixed(1)}% vs 目标 ${tgt.toFixed(1)}%。偏离度 > 5%，建议分批调整。`
-        });
-      }
-    });
-  }
-
-  // Fallback to general review
-  if (items.length === 0) {
-    items.push({
-      level: 'observe',
-      tier: '日常观察',
-      title: '组合处于健康区间',
-      detail: '暂无重大风险红线或配置偏离，请继续保持日常观察。'
-    });
-  }
-
-  return items;
+  S.meta.quoteDate=today(); save(); render(); flash('已写入 '+n+' 条行情');
+  document.getElementById('quoteState').textContent='最近更新：'+S.meta.quoteDate;
 }
-
-function renderActionItems(){
-  const items = buildActionItems();
-  if(!items.length) return '<div class="alloc-empty">暂无待处理事项</div>';
-  
-  // Sort by priority level
-  const order = { 'risk': 0, 'warn': 1, 'adjust': 2, 'review': 3, 'observe': 4 };
-  items.sort((a,b) => (order[a.level] ?? 99) - (order[b.level] ?? 99));
-
-  const shown = items.slice(0, 5); // Show up to 5 items
-
-  const summaryBadges = `
-    <div style="display:flex;gap:8px;margin-bottom:12px;font-size:12px;flex-wrap:wrap;">
-      <span class="status-pill risk">一票否决红线: ${items.filter(i=>i.level==='risk').length}</span>
-      <span class="status-pill warn">待补数据缺口: ${items.filter(i=>i.level==='warn').length}</span>
-      <span class="status-pill adjust">组合超限偏离: ${items.filter(i=>i.level==='adjust'||i.level==='review').length}</span>
-      <span class="status-pill observe">正常观察事件: ${items.filter(i=>i.level==='observe').length}</span>
-    </div>
-  `;
-
-  return summaryBadges + '<div class="alloc-list">'+shown.map(item=>`
-    <div class="alloc-row" style="grid-template-columns:150px 1fr 85px; align-items:center; gap:12px;">
-      <div>
-        <span style="font-size:10px;text-transform:uppercase;color:#64748b;display:block;margin-bottom:2px;">${escHtml(item.tier || '规则')}</span>
-        <div class="alloc-name" style="font-weight:600;font-size:13px;white-space:normal;">${escHtml(item.title)}</div>
-      </div>
-      <div style="font-size:12px;color:#475569;line-height:1.4;">${escHtml(item.detail)}</div>
-      <div class="status-pill ${item.level}" style="text-align:center;">
-        ${item.level === 'risk' ? '一票否决' : 
-          item.level === 'warn' ? '补齐数据' : 
-          item.level === 'adjust' ? '配置超限' : 
-          item.level === 'review' ? '大类偏离' : '观察/复核'}
-      </div>
-    </div>`).join('')+'</div>';
-}
-
-function renderEmptyState(){
-  const empty = document.getElementById('emptyPortfolioState');
-  const content = document.getElementById('portfolioContent');
-  const hasRows = S.rows.length>0;
-  if(empty) empty.classList.toggle('show', !hasRows);
-  if(content) content.classList.toggle('is-hidden', !hasRows);
-}
-function renderDecisionOverview(){
-  const totalVal = S.rows.reduce((sum,row)=>sum+getRowValue(row),0);
-  const stats = getValuationQualityStats();
-  const snap = getSnapshotDelta();
-  const totalEl = document.getElementById('decisionTotal');
-  const totalSub = document.getElementById('decisionTotalSub');
-  const deltaEl = document.getElementById('decisionDelta');
-  const deltaSub = document.getElementById('decisionDeltaSub');
-  const breakdown = document.getElementById('decisionBreakdown');
-  const coverage = document.getElementById('decisionCoverage');
-  const coverageSub = document.getElementById('decisionCoverageSub');
-  if(totalEl) totalEl.textContent = fmt(totalVal);
-  if(totalSub) totalSub.textContent = `${S.rows.length} 条资产 · 行情缓存 ${S.quoteCache&&S.quoteCache.asOf?S.quoteCache.asOf:'未获取'}`;
-  if(deltaEl){
-    deltaEl.className = 'decision-value '+(snap.has?(snap.diff>0?'rise':snap.diff<0?'fall':'flat'):'flat');
-    deltaEl.textContent = snap.has ? fmtSigned(snap.diff) : '待确认快照';
-  }
-  if(deltaSub) deltaSub.textContent = snap.has ? `${snap.pct>=0?'+':''}${snap.pct.toFixed(2)}% · 上次 ${fmtDateTime(snap.ts)}` : '确认一次快照后，后续变化才有可信比较基准。';
-  if(breakdown){
-    breakdown.innerHTML = snap.has ? `
-      <div><span>外部资金</span><b>${fmtSigned(snap.externalFlow)}</b></div>
-      <div><span>账务校准</span><b>${fmtSigned(snap.adjustment)}</b></div>
-      <div><span>市场/收益</span><b>${fmtSigned(snap.marketImpact)}</b></div>
-      <div><span>合计变化</span><b>${fmtSigned(snap.diff)}</b></div>` : '';
-  }
-  if(coverage){
-    coverage.className = 'decision-value '+(stats.missing?'warn':'flat');
-    coverage.textContent = stats.total ? stats.coverage+'%' : '—';
-  }
-  if(coverageSub) coverageSub.textContent = stats.total ? `${stats.usable}/${stats.total} 条可进入同步金额${stats.missing?'，'+stats.missing+' 条待补数据':'，当前无关键缺口'}` : '先导入资产或加载云端数据';
-}
-function renderAttentionSummary(){
-  const el = document.getElementById('attentionSummary');
-  if(!el) return;
-  const order = {risk:0,warn:1,adjust:2,review:3,observe:4};
-  const items = buildActionItems().sort((a,b)=>(order[a.level]??99)-(order[b.level]??99));
-  const relevant = items.filter(item=>item.level!=='observe').slice(0,4);
-  if(!relevant.length){
-    el.innerHTML = '<div class="decision-empty">暂无风险红线、关键估值缺口或明显配置偏离。</div>';
-    return;
-  }
-  const labels = {risk:'风险红线',warn:'数据缺口',adjust:'组合超限',review:'配置偏离'};
-  el.innerHTML = '<div class="decision-list">'+relevant.map(item=>`
-    <div class="decision-item">
-      <div class="kind">${escHtml(labels[item.level]||item.tier||'关注')}</div>
-      <div class="main"><b>${escHtml(item.title)}</b>${escHtml(item.detail)}</div>
-      <span class="status-pill ${item.level}">${item.level==='risk'?'立即复核':'待处理'}</span>
-    </div>`).join('')+'</div>';
-}
-function openOverviewDetails(){
-  switchTab('overview');
-  const details = document.querySelector('#pane-overview .detail-disclosure');
-  if(details) details.open = true;
-}
-function renderNextActionSummary(){
-  const el = document.getElementById('nextActionSummary');
-  if(!el) return;
-  const quality = getValuationQualityStats();
-  const items = buildActionItems();
-  const actions = [];
-  if(items.some(item=>item.level==='risk')) actions.push({title:'复核风险红线资产',detail:'先看分析结论和退出计划，暂停新增暴露。',label:'打开明细',onclick:'openOverviewDetails()'});
-  if(quality.missing) actions.push({title:`补齐 ${quality.missing} 条估值依据`,detail:'优先处理基金净值、指数涨跌或交易所行情缺口。',label:'去监控',onclick:"switchTab('market')"});
-  if(!S.snapshot) actions.push({title:'建立日常比较基准',detail:'确认当前同步金额为快照，后续变化会拆分外部资金和市场收益。',label:'确认快照',onclick:'saveSnap()'});
-  if(items.some(item=>item.level==='adjust'||item.level==='review')) actions.push({title:'复核目标配置',detail:'目标不必等于 100%，系统会按当前权重归一化计算。',label:'去设置',onclick:"switchTab('settings')"});
-  if(!actions.length) actions.push({title:'组合暂无紧急事项',detail:'有资金进出、收益或余额变化时直接记一笔。',label:'记一笔',onclick:"switchTab('log')"});
-  el.innerHTML = actions.slice(0,3).map(action=>`
-    <div class="next-action">
-      <div><b>${escHtml(action.title)}</b><p>${escHtml(action.detail)}</p></div>
-      <button class="btn btn-ghost" onclick="${action.onclick}">${escHtml(action.label)}</button>
-    </div>`).join('');
-}
-
-function renderExposureImpact(){
-  const el = document.getElementById('exposureImpact');
-  if(!el) return;
-  const groups = buildExposureGroups().map(g=>({name:g.name, value:g.value, diff:g.value-g.base, base:g.base}));
-  if(!groups.length){
-    el.innerHTML = '<div class="alloc-empty">暂无参照标的</div>';
-    return;
-  }
-  groups.sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
-  const maxAbs = Math.max(...groups.map(g=>Math.abs(g.diff)),1);
-  el.innerHTML = '<div class="alloc-list">'+groups.slice(0,6).map(g=>{
-    const cls = g.diff>0?'rise':g.diff<0?'fall':'flat';
-    return `<div class="alloc-row" style="grid-template-columns:110px 1fr 122px">
-      <div class="alloc-name">${escHtml(g.name)}</div>
-      <div class="alloc-bar"><div class="alloc-fill" style="width:${Math.min(Math.abs(g.diff)/maxAbs*100,100)}%;background:${g.diff>=0?'#dc2626':'#16a34a'}"></div></div>
-      <div class="alloc-num ${cls}">${Math.abs(g.diff)<0.01?'—':fmtSigned(g.diff)}</div>
-    </div>`;
-  }).join('')+'</div>';
-}
-
-function renderValuationQualitySummary(){
-  const el = document.getElementById('valuationQualitySummary');
-  if(!el) return;
-  const stats = getValuationQualityStats();
-  const cacheDate = S.quoteCache && S.quoteCache.asOf ? S.quoteCache.asOf : '未导入';
-  el.innerHTML = [
-    {label:'同步金额', value:fmt(stats.totalVal), sub:stats.total?`较导入 ${fmtSigned(stats.totalVal-stats.baseVal)}`:'先导入持仓', cls:''},
-    {label:'金额覆盖', value:stats.total?stats.coverage+'%':'—', sub:stats.total?`${stats.usable}/${stats.total} 条可进入首页同步金额`:'先导入持仓', cls:stats.missing?'warn':'good'},
-    {label:'待补数据', value:stats.missing+'条', sub:stats.missing?'优先补净值或参照涨跌':'无关键缺口', cls:stats.missing?'warn':'good'},
-    {label:'沿用导入金额', value:stats.carry+'条', sub:'主要用于固收/理财等非日内估值资产', cls:stats.carry?'warn':''},
-    {label:'缓存日期', value:cacheDate, sub:'估值缓存 JSON 的 asOf/date 字段', cls:cacheDate==='未导入'?'warn':''}
-  ].map(c=>`<div class="quality-card ${c.cls}"><div class="label">${c.label}</div><div class="value">${c.value}</div><div class="sub">${c.sub}</div></div>`).join('');
-}
-function renderValuationIssues(){
-  const el = document.getElementById('valuationIssues');
-  if(!el) return;
-  const groups = buildValuationIssueGroups();
-  if(!S.rows.length){
-    el.innerHTML = '<div class="alloc-empty">暂无资产，导入持仓后检查估值质量</div>';
-    return;
-  }
-  if(!groups.length){
-    el.innerHTML = '<div class="alloc-empty">暂无待补估值依据</div>';
-    return;
-  }
-  el.innerHTML = '<div class="issue-list">'+groups.map(g=>{
-    const pillCls = g.level==='warn'?'warn':'est';
-    const pillTxt = g.level==='warn'?'待补':'确认';
-    return `<div class="issue-row">
-      <div class="issue-title">${g.title}</div>
-      <div class="issue-detail">${g.count} 条，${fmt(g.amount)}。${g.action}<br><span style="color:#94a3b8">${g.examples.map(escHtml).join('、')}</span></div>
-      <div class="status-pill ${pillCls}">${pillTxt}</div>
-    </div>`;
-  }).join('')+'</div>';
-}
-function renderMarketExposureList(){
-  const el = document.getElementById('marketExposureList');
-  if(!el) return;
-  const groups = buildExposureGroups();
-  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  if(!groups.length){
-    el.innerHTML = '<div class="alloc-empty">暂无参照标的</div>';
-    return;
-  }
-  el.innerHTML = '<div class="issue-list">'+groups.slice(0,6).map(g=>{
-    const pct = totalVal ? g.value/totalVal*100 : 0;
-    const statuses = Object.entries(g.statuses).map(([k,v])=>`${k} ${v}`).join(' / ');
-    return `<div class="issue-row">
-      <div class="issue-title">${escHtml(g.name)}</div>
-      <div class="issue-detail">${fmt(g.value)} · ${pct.toFixed(1)}% · ${g.count} 条<br><span style="color:#94a3b8">${escHtml(statuses)}</span></div>
-      <div class="status-pill ${g.missing?'warn':'ok'}">${g.missing?'有缺口':'可用'}</div>
-    </div>`;
-  }).join('')+'</div>';
-}
-
-function renderFocusPanel(){
-  const el = document.getElementById('focusPanel');
-  if(!el) return;
-  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  const baseVal = S.rows.reduce((s,r)=>s+(parseFloat(r.amount)||0),0);
-  const snap = getSnapshotDelta();
-  const importDiff = totalVal - baseVal;
-  const groups = buildExposureGroups();
-  const top = groups[0];
-  const quality = getValuationQualityStats();
-  const diffCls = snap.has ? (snap.diff>0?'good':snap.diff<0?'bad':'') : 'warn';
-  el.innerHTML = [
-    {label:snap.label, value:snap.has?fmtSigned(snap.diff):'待确认', sub:snap.has?((snap.pct>=0?'+':'')+snap.pct.toFixed(2)+'%，上次 '+(fmtDateTime(snap.ts)||'未记录')):'点击“确认快照”建立日常比较基准', cls:diffCls},
-    {label:'最大敞口', value:top?top.name:'—', sub:top?`${fmt(top.value)} · ${totalVal?(top.value/totalVal*100).toFixed(1):'0.0'}%`:'暂无资产', cls:''},
-    {label:'金额覆盖', value:quality.total?quality.coverage+'%':'—', sub:quality.total?`${quality.usable}/${quality.total} 条可用于同步，较导入 ${fmtSigned(importDiff)}`:'先导入持仓', cls:quality.missing?'warn':'good'},
-    {label:'待补数据', value:quality.missing+'条', sub:quality.missing?'先补基金净值或参照涨跌':(quality.carry?`${quality.carry} 条固收/理财沿用导入金额`:'当前无明显缺口'), cls:quality.missing?'warn':'good'}
-  ].map(c=>`<div class="focus-card ${c.cls}"><div class="label">${c.label}</div><div class="value">${c.value}</div><div class="sub">${c.sub}</div></div>`).join('');
-}
-
-// ══════════════════════════════════════════════════════════════
-//  OWNER SUMMARY CARDS
-// ══════════════════════════════════════════════════════════════
-function renderOwnerRow(){
-  const el = document.getElementById('ownerRow');
-  if(!el) return;
-  const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-
-  const totA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A').reduce((s,r)=>s+getRowValue(r),0);
-  const totB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B').reduce((s,r)=>s+getRowValue(r),0);
-  el.innerHTML = [
-    {name:'责任人 A', tab:'ownerA', amt:totA, pct:tot?totA/tot*100:0},
-    {name:'责任人 B', tab:'ownerB', amt:totB, pct:tot?totB/tot*100:0},
-  ].map(o=>`<div class="owner-card actionable" role="button" tabindex="0" onclick="switchTab('${o.tab}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchTab('${o.tab}')}" aria-label="查看${o.name}">
-    <div class="name">${o.name}</div>
-    <div class="amount">${fmt(o.amt)}</div>
-    <div class="pct">占总资产 ${fmtPct(o.pct)} · 查看明细</div>
-  </div>`).join('');
-}
-
-// ══════════════════════════════════════════════════════════════
-//  REBALANCE
-// ══════════════════════════════════════════════════════════════
-function renderRebalance(elId, rows, targetKey){
-  const el = document.getElementById(elId);
-  if(!el) return;
-  const targets = S.targets[targetKey];
-  const tot = rows.reduce((s,r)=>s+getRowValue(r),0);
-  const tsum = Object.values(targets).reduce((a,b)=>a+b,0);
-  const scale = tsum>0 ? 100/tsum : 0;
-  el.innerHTML = '<div class="reb-grid">'+CATS.map((cat,i)=>{
-    const actual = rows.filter(r=>normalizeCategory(r.cat)===cat).reduce((s,r)=>s+getRowValue(r),0);
-    const actPct = tot?actual/tot*100:0;
-    const tgt    = (targets[cat]||0)*scale;
-    const diff   = actPct - tgt;
-    const amount = tot*(diff/100);
-    let suggestTxt='', suggestCls='';
-    if(Math.abs(diff)<2){ suggestTxt='正常'; suggestCls='ok'; }
-    else if(diff>0){ suggestTxt=`↓ 减少 ${fmt(Math.abs(amount))} (${diff.toFixed(1)}%)`; suggestCls='over'; }
-    else{ suggestTxt=`↑ 增加 ${fmt(Math.abs(amount))} (${Math.abs(diff).toFixed(1)}%)`; suggestCls='under'; }
-    const barW = Math.min(actPct/Math.max(tgt,1)*100,160);
-    return `<div class="reb-card">
-      <div class="cat-name" style="color:${CAT_COLORS[i]}">${cat}</div>
-      <div class="prog-wrap"><div class="prog-bar" style="width:${Math.min(actPct,100)}%;background:${CAT_COLORS[i]}"></div></div>
-      <div class="numbers"><span>当前 ${actPct.toFixed(1)}%</span><span>目标 ${tgt.toFixed(1)}%</span></div>
-      <div class="suggest ${suggestCls}">${suggestTxt}</div>
-    </div>`;
-  }).join('')+'</div>';
-}
-
-// ══════════════════════════════════════════════════════════════
-//  TARGET SETTINGS
-// ══════════════════════════════════════════════════════════════
-function renderSliders(){
-  renderPresetGrid();
-  ['All','A','B'].forEach(scope=>{
-    const el = document.getElementById('sliders'+scope);
-    if(!el || el.children.length>0) return; // only build once
-    const targetKey = scope==='All'?'all':scope;
-    el.innerHTML = CATS.map(cat=>`
-      <div class="target-row">
-        <label>${cat}</label>
-        <input type="number" min="0" max="100" step="1" value="${S.targets[targetKey][cat]||0}" data-scope="${targetKey}" data-cat="${cat}" oninput="onSlider(this)">
-        <span class="unit">%</span>
-      </div>`).join('');
-    updateTargetSum(scope);
-  });
-}
-function onSlider(el){
-  const sc = el.dataset.scope, cat = el.dataset.cat;
-  S.targets[sc][cat] = Math.max(0, parseFloat(el.value)||0);
-  updateTargetSum(sc==='all'?'All':sc);
-  save();
-  renderAll(true);
-}
-function updateTargetSum(scope){
-  const targetKey = scope==='All'?'all':scope;
-  const sum = Object.values(S.targets[targetKey]).reduce((a,b)=>a+b,0);
-  const el = document.getElementById('targetSum'+scope);
-  if(!el) return;
-  el.textContent = Math.abs(sum-100)<0.5 ? '合计：100%' : '合计：'+sum+'%，已按权重归一化计算';
-  el.className = Math.abs(sum-100)<0.5?'sum-ok':'sum-err';
-}
-function renderPresetGrid(){
-  const el = document.getElementById('presetGrid');
-  if(!el || el.children.length>0) return;
-  el.innerHTML = ALLOCATION_PRESETS.map((p,i)=>`
-    <button class="preset-btn" onclick="applyPreset(${i})">
-      <b>${p.name}</b><span>${p.desc}</span><span class="ratios">${presetRatioText(p.values)}</span>
-    </button>`).join('');
-}
-function presetRatioText(values){
-  const shortNames = {'现金/存款':'现金','固收/理财':'固收','基金/ETF':'基金','股票':'股票','加密/另类':'另类','其他':'其他'};
-  return CATS.filter(cat=>values[cat]>0).map(cat=>`${shortNames[cat]} ${values[cat]}%`).join(' / ');
-}
-function applyPreset(idx){
-  const preset = ALLOCATION_PRESETS[idx];
-  if(!preset) return;
-  ['all','A','B'].forEach(scope=>{
-    S.targets[scope] = Object.assign({}, preset.values);
-  });
-  ['All','A','B'].forEach(scope=>{
-    const el = document.getElementById('sliders'+scope);
-    if(el) el.innerHTML='';
-  });
-  save();
-  renderAll();
-  toast('已应用配置参考：'+preset.name);
-}
-
-// ══════════════════════════════════════════════════════════════
-//  RENDER ALL
-// ══════════════════════════════════════════════════════════════
-function renderAll(light=false){
-  const rowsA = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 A');
-  const rowsB = S.rows.filter(r=>normalizeOwner(r.owner)==='责任人 B');
-
-  renderSnapshotInfo();
-  renderKPI('kpiRow',  S.rows, '合并');
-  renderKPI('kpiRowA', rowsA,  '责任人 A');
-  renderKPI('kpiRowB', rowsB,  '责任人 B');
-  renderEmptyState();
-  renderDecisionOverview();
-  renderAttentionSummary();
-  renderNextActionSummary();
-  renderOwnerRow();
-  renderFocusPanel();
-
-  renderTable('all');
-  renderTable('A');
-  renderTable('B');
-
-  // Charts
-  const d  = buildChartData(S.rows);
-  const dA = buildChartData(rowsA);
-  const dB = buildChartData(rowsB);
-  const totA = rowsA.reduce((s,r)=>s+getRowValue(r),0);
-  const totB = rowsB.reduce((s,r)=>s+getRowValue(r),0);
-
-  makeOrUpdateChart('chartAlloc', d.labels, d.data, CAT_COLORS);
-  makeOrUpdateChart('chartAllocA', dA.labels, dA.data, CAT_COLORS);
-  makeOrUpdateChart('chartAllocB', dB.labels, dB.data, CAT_COLORS);
-  makeOrUpdateChart('chartOwner', ['责任人 A','责任人 B'], [totA,totB], ['#2563eb','#f59e0b']);
-  renderAllocationBars('allocBars', S.rows);
-  renderAllocationBars('allocBarsA', rowsA);
-  renderAllocationBars('allocBarsB', rowsB);
-  renderOwnerShareBars();
-  renderExposureImpact();
-  const actionsEl = document.getElementById('actionItems');
-  if(actionsEl) actionsEl.innerHTML = renderActionItems();
-
-  renderRebalance('rebAll', S.rows, 'all');
-  renderRebalance('rebA',   rowsA,  'A');
-  renderRebalance('rebB',   rowsB,  'B');
-  renderValuationQualitySummary();
-  renderValuationIssues();
-  renderMarketExposureList();
-  renderValuationGrid();
-  renderTransactionPanel();
-
-  if(!light){
-    renderSliders();
-    renderWatchCards();
-    renderIndexCards();
-    // notes + alert settings
-    document.getElementById('notesA').value = S.notesA||'';
-    document.getElementById('notesB').value = S.notesB||'';
-    document.getElementById('alertDown').value = S.alertDown||5;
-    document.getElementById('alertUp').value   = S.alertUp||10;
-  }
-  checkAlert();
-}
-
-// ══════════════════════════════════════════════════════════════
-//  SNAPSHOT & ALERT
-// ══════════════════════════════════════════════════════════════
-function saveSnap(){
-  if(!S.rows.length){ toast('当前没有资产，无法确认快照'); return; }
-  const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  S.snapshot = {total:tot, ts:new Date().toISOString()};
-  save(); renderAll(); toast('快照已确认：'+fmt(tot));
-}
-function checkAlert(){
-  if(!S.snapshot || !S.snapshot.total) return;
-  const tot = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  const diff = (tot - S.snapshot.total)/S.snapshot.total*100;
-  const banner = document.getElementById('alertBanner');
-  const txt    = document.getElementById('alertTxt');
-  if(diff<= -(S.alertDown||5)){
-    banner.style.display='block'; banner.style.background='#ff4d4f';
-    txt.textContent=`总资产较快照下跌 ${Math.abs(diff).toFixed(2)}%，当前 ${fmt(tot)}，快照 ${fmt(S.snapshot.total)}`;
-  } else if(diff>=(S.alertUp||10)){
-    banner.style.display='block'; banner.style.background='#16a34a';
-    txt.textContent=`总资产较快照上涨 ${diff.toFixed(2)}%，当前 ${fmt(tot)}，快照 ${fmt(S.snapshot.total)}`;
-  } else {
-    banner.style.display='none';
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-//  ADD ROW
-// ══════════════════════════════════════════════════════════════
-function addRow(owner){
-  const row = {id:S.nextId++, owner:owner==='B'?'责任人 B':'责任人 A', name:'', cat:'基金/ETF', amount:'', code:'', shares:'', cost:'', nav:'', note:'', redline:'无', analysisNote:'', extra:{}};
-  S.rows.push(row);
-  save();
-  renderAll();
-}
-
-// ══════════════════════════════════════════════════════════════
-//  CLEAR ALL
-// ══════════════════════════════════════════════════════════════
-function clearAll(){
-  if(!confirm('确认清空所有资产数据？（此操作不可撤销）')) return;
-  S.rows=[];S.extraFields=[];S.nextId=1;S.snapshot=null;S.transactions=[];
-  save(); renderAll();
-  toast('数据已清空');
-}
-
-// ══════════════════════════════════════════════════════════════
-//  EXPORT
-// ══════════════════════════════════════════════════════════════
 function exportJSON(){
-  const blob = new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'fund_backup_'+new Date().toISOString().slice(0,10)+'.json';
-  a.click();
+  const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='资产数据_'+today()+'.json'; a.click();
+}
+function importJSON(inp){
+  const f=inp.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>{ try{ S=JSON.parse(r.result); save(); render(); flash('导入成功'); }catch(e){ flash('文件格式不对'); } };
+  r.readAsText(f); inp.value='';
+}
+function clearAll(){ if(!confirm('清空全部持仓、流水和快照？此操作不可撤销。')) return; S=JSON.parse(JSON.stringify(DEFAULTS)); save(); render(); }
+
+/* ============ 导入 ============ */
+function parseTable(text){
+  const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.trim().length);
+  if(!lines.length) return [];
+  const split=l=> l.includes('\t')? l.split('\t') : l.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+  const head=split(lines[0]).map(s=>s.trim());
+  const idx={};
+  const map={account:['账户','账户/平台','平台'], cat:['资产大类','大类','类别'], name:['名称','资产名称'],
+    code:['代码'], tag:['标签'], cur:['币种'], qty:['数量','数量/份额','份额','金额'], cost:['成本','成本单价','单价']};
+  Object.keys(map).forEach(k=>{ idx[k]=head.findIndex(h=>map[k].some(x=>h.includes(x))); });
+  const out=[];
+  lines.slice(1).forEach(l=>{
+    const c=split(l).map(s=>s.replace(/^"|"$/g,'').trim());
+    const get=k=> idx[k]>=0 ? (c[idx[k]]||'') : '';
+    const name=get('name'), qty=Number(String(get('qty')).replace(/[,¥$]/g,''));
+    if(!name || isNaN(qty)) return;
+    let cat=get('cat'); if(!CATS.includes(cat)) cat='其他';
+    let cur=get('cur'); if(!['CNY','USD','HKD'].includes(cur)) cur='CNY';
+    out.push({id:'h'+Date.now()+Math.random().toString(36).slice(2,6), account:get('account')||'未分类',
+      cat:cat, name:name, code:get('code'), tag:get('tag'), cur:cur, qty:qty,
+      cost:Number(String(get('cost')).replace(/[,¥$]/g,''))||0});
+  });
+  return out;
+}
+function importPasted(replace){
+  const rows=parseTable(document.getElementById('pasteBox').value);
+  if(!rows.length){ document.getElementById('importMsg').textContent='没解析出有效行，检查是否包含表头（账户/平台、资产大类、名称、数量）'; return; }
+  if(replace) S.holdings=rows; else S.holdings=S.holdings.concat(rows);
+  save(); render();
+  document.getElementById('importMsg').textContent='成功导入 '+rows.length+' 行'+(replace?'（已替换原有持仓）':'');
+  flash('导入 '+rows.length+' 行');
+}
+function importFile(inp){
+  const f=inp.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>{ document.getElementById('pasteBox').value=r.result; importPasted(false); };
+  r.readAsText(f,'utf-8'); inp.value='';
 }
 
-// ══════════════════════════════════════════════════════════════
-//  IMPORT
-// ══════════════════════════════════════════════════════════════
-document.getElementById('fileInput').addEventListener('change', e=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  e.target.value=''; // reset so same file can re-import
-  const ext = file.name.split('.').pop().toLowerCase();
-  if(ext==='json'){
-    const reader = new FileReader();
-    reader.onload = ev=>{
-      try{
-        applyState(JSON.parse(ev.target.result));
-        toast('JSON 导入成功');
-      }catch(err){ alert('JSON 解析失败：'+err); }
-    };
-    reader.readAsText(file);
-  } else if(ext==='xlsx'||ext==='xls'){
-    if(typeof XLSX === 'undefined'){
-      alert('Excel解析库(SheetJS)尚未加载完毕或因网络原因加载失败。\n\n请稍等数秒重试，或直接将您的 Excel 文件另存为 .csv 格式后导入。');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = ev=>{ parseXlsx(ev.target.result); };
-    reader.readAsArrayBuffer(file);
-  } else if(ext==='csv'){
-    const reader = new FileReader();
-    reader.onload = ev=>{ parseCsv(ev.target.result); };
-    reader.readAsText(file, 'utf-8');
-  } else {
-    alert('不支持的文件格式！请导入 .json, .xlsx, .xls 或 .csv 文件');
-  }
-});
-
-function processImportData(headers, bodyRows){
-    const colMap = headers.map(h=>({header:h, ...matchCol(h)}));
-    const coreFields = new Set(colMap.filter(c=>c.type==='core').map(c=>c.field));
-    const missingCore = ['owner','name','cat','amount'].filter(f=>!coreFields.has(f));
-    pendingImportIssues = missingCore;
-
-    const mapList = document.getElementById('fieldMapList');
-    mapList.innerHTML = colMap.map(c=>{      let tag='', tagClass='';
-      if(c.type==='core'){ tag=`固定核心 → ${c.field}`; tagClass='tag-core'; }
-      else if(c.type==='opt'){ tag=`可选列 → ${c.field}`; tagClass='tag-opt'; }
-      else { tag='自定义列 (保留)'; tagClass='tag-extra'; }
-      return `<div class="field-map-row">
-        <span class="fmr-excel">"${c.header}"</span>
-        <span class="fmr-arrow">→</span>
-        <span class="fmr-tag ${tagClass}">${tag}</span>
-      </div>`;
-    }).join('');
-
-    if(missingCore.length>0){      mapList.innerHTML += `<div style="margin-top:10px;background:#fff2f0;color:#cf1322;padding:10px;border-radius:8px;font-size:13px">
-        以下固定核心列未能匹配，请确认 Excel 表头：<b>${missingCore.join('、')}</b>
-      </div>`;
-    }
-
-    pendingRows = bodyRows;
-    pendingMap  = colMap;
-    pendingExtra = colMap.filter(c=>c.type==='extra').map(c=>({key:c.header.replace(/[^\w一-龥]/g,'_'), label:c.header}));
-
-    document.getElementById('importModal').classList.add('open');
-  }
-
-  function parseXlsx(ab){
-    const wb = XLSX.read(ab,{type:'arraybuffer'});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-    const table = getImportTable(data||[]);
-    if(!table||table.bodyRows.length===0){ alert('Excel 无有效数据或未找到表头'); return; }
-    processImportData(table.headers, table.bodyRows);
-  }
-
-  function parseCsv(text){
-    const lines = [];
-    let row = [''];
-    let inQuotes = false;
-    for(let i=0; i<text.length; i++){
-      const char = text[i];
-      const nextChar = text[i+1];
-      if(char === '"'){
-        if(inQuotes && nextChar === '"'){
-          row[row.length-1] += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if(char === ',' && !inQuotes){
-        row.push('');
-      } else if((char === '\r' || char === '\n') && !inQuotes){
-        if(char === '\r' && nextChar === '\n') i++;
-        lines.push(row);
-        row = [''];
-      } else {
-        row[row.length-1] += char;
-      }
-    }
-    if(row.length > 1 || row[0] !== '') lines.push(row);
-    
-    const table = getImportTable(lines);
-    if(!table||table.bodyRows.length===0){ alert('CSV 无有效数据或未找到表头'); return; }
-    processImportData(table.headers, table.bodyRows);
-  }
-
-function cancelImport(){
-  document.getElementById('importModal').classList.remove('open');
-  pendingRows=[]; pendingMap=[]; pendingExtra=[]; pendingImportIssues=[];
+/* ============ 示例数据 ============ */
+function loadDemo(){
+  const day = n => { const d=new Date(); d.setDate(d.getDate()+n); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+  S.holdings=[
+    {id:'d1',  account:'招商银行', cat:'现金存款', name:'活期+定期', code:'', tag:'', cur:'CNY', qty:50000, cost:50000},
+    {id:'d2',  account:'招商银行', cat:'负债', name:'房贷', code:'', tag:'', cur:'CNY', qty:120000, cost:0},
+    {id:'d3',  account:'支付宝', cat:'基金ETF', name:'沪深300指数A', code:'000961', tag:'宽基', cur:'CNY', qty:12530, cost:1.62},
+    {id:'d4',  account:'华泰证券', cat:'基金ETF', name:'科技ETF', code:'515000', tag:'科技', cur:'CNY', qty:30000, cost:1.32},
+    {id:'d5',  account:'天天基金', cat:'基金ETF', name:'中证500指数', code:'003986', tag:'宽基', cur:'CNY', qty:55000, cost:1.50},
+    {id:'d6',  account:'天天基金', cat:'固收理财', name:'招商双债增强', code:'217022', tag:'债', cur:'CNY', qty:60000, cost:1.48},
+    {id:'d7',  account:'工商银行', cat:'固收理财', name:'稳健理财90天', code:'', tag:'', cur:'CNY', qty:58000, cost:58000},
+    {id:'d8',  account:'华泰证券', cat:'股票', name:'贵州茅台', code:'600519', tag:'消费', cur:'CNY', qty:60, cost:1500},
+    {id:'d9',  account:'华泰证券港股通', cat:'股票', name:'腾讯控股', code:'00700', tag:'科技', cur:'HKD', qty:200, cost:300},
+    {id:'d10', account:'工商银行', cat:'另类（黄金等）', name:'黄金积存', code:'', tag:'黄金', cur:'CNY', qty:25000, cost:23000}
+  ];
+  S.quotes={'000961':{price:1.756},'515000':{price:1.41},'003986':{price:1.63},'217022':{price:1.52},'600519':{price:1680},'00700':{price:380}};
+  S.meta.quoteDate=today();
+  S.snapshots=[{date:day(-30), net:405000, flow:0},{date:day(-15), net:415000, flow:0}];
+  S.plans=[
+    {id:'pDemo1', name:'沪深300 月定投', assetId:'d3', assetName:'沪深300指数A', fromId:'d1', fromName:'招商银行',
+     amount:2000, freq:'monthly', day:15, start:day(-75), end:'', status:'active', executed:[], skipped:[]},
+    {id:'pDemo2', name:'黄金周投', assetId:'d10', assetName:'黄金积存', fromId:'', fromName:'新增资金',
+     amount:500, freq:'weekly', day:3, start:day(-28), end:'', status:'active', executed:[], skipped:[]}
+  ];
+  save(); syncPlans(true); snapshotDaily(); render(); refreshPlanSelects(); flash('已载入示例数据（含 2 个定投计划，到期期次已自动入账）');
 }
 
-function confirmImport(){
-  if(pendingImportIssues.length){
-    alert(`导入失败：缺少必要列 ${pendingImportIssues.join('、')}。现有数据未改动。`);
-    return;
-  }
-
-  const errors = [];
-  const importedRows = [];
-  const numericLabels = {shares:'持有数量/份额', cost:'买入成本', nav:'现在价格/净值'};
-
-  pendingRows.forEach((row,rowIndex)=>{
-    const lineNo = rowIndex + 1;
-    const rowErrorStart = errors.length;
-    const raw = {};
-    const obj = {id:importedRows.length + 1, owner:'', name:'', cat:'', amount:0, code:'', shares:'', cost:'', nav:'', benchmark:'', note:'', redline:'无', analysisNote:'', extra:{}};
-
-    pendingMap.forEach((cm,ci)=>{
-      const val = row[ci]!==undefined?String(row[ci]).trim():'';
-      if(cm.type==='core' || cm.type==='opt') raw[cm.field] = val;
-      if(!val) return;
-      if(cm.type==='core'){
-        if(cm.field==='cat') obj.cat = normalizeCategory(val);
-        else if(cm.field==='amount') obj.amount = parseMoneyStrict(val);
-        else obj[cm.field] = val;
-      } else if(cm.type==='opt'){
-        if(cm.field==='shares'||cm.field==='cost'||cm.field==='nav'){
-          obj[cm.field] = parseMoneyStrict(val);
-        } else {
-          obj[cm.field]=val;
-        }
-      } else {
-        const key = cm.header.replace(/[^\w\u4e00-\u9fa5]/g,'_');
-        obj.extra[key] = val;
-      }
-    });
-
-    if(!Object.values(raw).some(v=>String(v||'').trim()) && !Object.values(obj.extra).some(Boolean)) return;
-
-    obj.owner = normalizeOwner(raw.owner);
-    if(!obj.owner) errors.push(`第 ${lineNo} 行：归属责任人必须是“责任人 A”或“责任人 B”`);
-    if(!String(raw.name||'').trim()) errors.push(`第 ${lineNo} 行：资产名称不能为空`);
-    if(!String(raw.cat||'').trim()) errors.push(`第 ${lineNo} 行：资产大类不能为空`);
-    if(!String(raw.amount||'').trim()) errors.push(`第 ${lineNo} 行：当前金额/余额不能为空`);
-    else if(obj.amount===null) errors.push(`第 ${lineNo} 行：当前金额/余额不是有效数字`);
-
-    ['shares','cost','nav'].forEach(field=>{
-      if(String(raw[field]||'').trim() && obj[field]===null){
-        errors.push(`第 ${lineNo} 行：${numericLabels[field]}不是有效数字`);
-      }
-    });
-
-    if(errors.length > rowErrorStart) return;
-    obj.name = String(raw.name).trim();
-    obj.cat = normalizeCategory(raw.cat);
-    ['shares','cost','nav'].forEach(field=>{ if(obj[field]===null) obj[field]=''; });
-    obj.benchmark = inferBenchmark(obj);
-    importedRows.push(obj);
-  });
-
-  if(errors.length){
-    alert(`导入失败，现有数据未改动：\n${errors.slice(0,12).join('\n')}${errors.length>12?`\n另有 ${errors.length-12} 个问题未显示`:''}`);
-    return;
-  }
-  if(!importedRows.length){
-    alert('导入失败：没有可导入的有效资产行。现有数据未改动。');
-    return;
-  }
-
-  document.getElementById('importModal').classList.remove('open');
-
-  const extraFields = S.extraFields.slice();
-  const existingLabels = new Set(extraFields.map(e=>e.label));
-  pendingExtra.forEach(ef=>{ if(!existingLabels.has(ef.label)){ extraFields.push(ef); existingLabels.add(ef.label); } });
-
-  S.extraFields = extraFields;
-  S.rows = importedRows;
-  S.nextId = importedRows.length + 1;
-  importedRows.forEach(r=>{
-    const code = String(r.code||'').trim().toLowerCase();
-    if(isRealtimeCode(code)&&!S.watchlist.includes(code)) S.watchlist.push(code);
-  });
-
+/* ============ 启动 ============ */
+function snapshotDaily(){
+  const c=compute(); const t=today();
+  if(!S.holdings.length) return;
+  const last=S.snapshots[S.snapshots.length-1];
+  if(!last || last.date!==t){
+    const prevDate = last? last.date : '1970-01-01';
+    S.snapshots.push({date:t, net:c.net, flow:externalFlow(t, prevDate)});
+  }else{ last.net=c.net; last.flow=externalFlow(t, S.snapshots[S.snapshots.length-2]? S.snapshots[S.snapshots.length-2].date : '1970-01-01'); }
   save();
-  renderAll();
-  toast(`成功导入并替换 ${importedRows.length} 条资产记录`);
-  pendingRows=[]; pendingMap=[]; pendingExtra=[]; pendingImportIssues=[];
-  fetchMarket();
 }
-
-// ══════════════════════════════════════════════════════════════
-//  MARKET DATA (Tencent JSONP)
-// ══════════════════════════════════════════════════════════════
-const INDEX_CODES = ['sh000001','sz399001','sh000300','sz399006','sh000016','sh000688'];
-const INDEX_NAMES = {'sh000001':'上证指数','sz399001':'深证成指','sh000300':'沪深300','sz399006':'创业板','sh000016':'上证50','sh000688':'科创50'};
-
-function addWatch(){
-  const input = document.getElementById('mktCodeInput');
-  const code = input.value.trim().toLowerCase();
-  if(!code){ toast('请输入行情代码'); return; }
-  if(!isRealtimeCode(code)){ toast('请输入 sh/sz 开头的交易所代码；公募基金代码请通过估值缓存导入'); return; }
-  if(S.watchlist.includes(code)){ toast('已在自选中'); return; }
-  S.watchlist.push(code);
-  input.value='';
-  save(); renderWatchCards(); fetchMarket();
+function fillSelects(){
+  document.getElementById('nCat').innerHTML=CATS.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('pBench').value=S.params.benchmark;
+  document.getElementById('pBenchChg').value=S.params.benchChange;
+  document.getElementById('pDD').value=S.params.drawdown;
+  document.getElementById('pDev').value=S.params.devAbs;
+  document.getElementById('pMkt').value=S.params.market;
+  document.getElementById('pUSD').value=S.params.fx.USD;
+  document.getElementById('pHKD').value=S.params.fx.HKD;
+  document.getElementById('tDate').value=today();
+  const ps=document.getElementById('pStart'); if(ps && !ps.value) ps.value=today();
+  const pn=document.getElementById('pDayNum'); if(pn && !pn.value) pn.value=String(Math.min(new Date().getDate(),28));
+  if(typeof onFreqChange==='function') onFreqChange();
+  document.getElementById('quoteState').textContent=S.meta.quoteDate?('最近更新：'+S.meta.quoteDate):'尚未更新';
 }
-document.getElementById('mktCodeInput').addEventListener('keydown',e=>{ if(e.key==='Enter') addWatch(); });
-
-document.getElementById('quoteInput').addEventListener('change', e=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  e.target.value='';
-  const reader = new FileReader();
-  reader.onload = ev=>{
-    try{
-      applyQuoteCache(JSON.parse(String(ev.target.result).replace(/^\uFEFF/,'').trim()));
-    }catch(err){
-      alert('估值缓存 JSON 解析失败：'+err.message);
-    }
-  };
-  reader.readAsText(file, 'utf-8');
+function refreshAssetSelect(){
+  const sel=document.getElementById('tAsset');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">（不关联资产）</option>'+S.holdings.filter(h=>h.cat!=='负债')
+    .map(h=>`<option value="${h.id}">${esc(h.account)} / ${esc(h.name)}</option>`).join('');
+  sel.value=cur;
+}
+function goSet(){
+  const b=document.querySelector('#nav button[data-tab="set"]');
+  if(b) b.click();
+}
+function goHold(focusId){
+  const b=document.querySelector('#nav button[data-tab="hold"]');
+  if(b) b.click();
+  if(focusId){ setTimeout(()=>{const el=document.getElementById(focusId); if(el) el.focus();}, 50); }
+}
+document.getElementById('nav').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  TAB=b.dataset.tab;
+  document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on', x===b));
+  ['home','hold','ledger','plan','recon','set'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==TAB));
+  if(TAB==='ledger') refreshAssetSelect();
+  if(TAB==='plan') refreshPlanSelects();
 });
-
-function applyQuoteCache(data, opts={}){
-  const next = {asOf:data.asOf||data.date||new Date().toISOString().slice(0,10), funds:{}, benchmarks:{}, securities:{}};
-  Object.entries(data.funds||{}).forEach(([k,v])=>next.funds[String(k).trim().toLowerCase()] = v);
-  Object.entries(data.benchmarks||{}).forEach(([k,v])=>next.benchmarks[k] = v);
-  Object.entries(data.securities||{}).forEach(([k,v])=>next.securities[String(k).trim().toLowerCase()] = v);
-  S.quoteCache = next;
-  save();
-  renderAll();
-  if(!opts.silent) toast('估值缓存已导入');
+fillSelects(); syncPlans(true); snapshotDaily(); render(); refreshAssetSelect(); refreshPlanSelects();
+// 上线后：若同目录存在 data/quotes.json（由定时任务每日写入），自动读取
+if(location.protocol.indexOf('http')===0){
+  fetch('data/quotes.json').then(r=>r.ok?r.json():null).then(j=>{
+    if(j && j.quotes){ Object.keys(j.quotes).forEach(k=>S.quotes[k]=j.quotes[k]); S.meta.quoteDate=j.date||today(); save(); render(); }
+  }).catch(()=>{});
 }
-
-async function loadRemoteQuoteCache(){
-  if(location.protocol==='file:') return;
-  try{
-    const res = await fetch(REMOTE_QUOTE_CACHE_URL+'?t='+Date.now(), {cache:'no-store'});
-    if(!res.ok) return;
-    const data = await res.json();
-    applyQuoteCache(data, {silent:true});
-    const ts = document.getElementById('mktTs');
-    if(ts) ts.textContent = '每日估值缓存 '+(S.quoteCache.asOf||'已同步');
-  }catch(e){
-    const ts = document.getElementById('mktTs');
-    if(ts) ts.textContent = '每日估值缓存未获取，可手动导入';
-  }
-}
-
-function downloadQuoteTemplate(){
-  const template = {
-    asOf: new Date().toISOString().slice(0,10),
-    funds: {
-      "022983": {"name":"华夏沪深300ETF联接Y", "nav":1.8734, "asOf":"2026-07-06"},
-      "022982": {"name":"工银中证A500ETF联接Y", "nav":1.3777, "asOf":"2026-07-06"}
-    },
-    benchmarks: {
-      "沪深300": {"chgPct":0.35, "asOf":"实时或当日估算"},
-      "中证A500": {"chgPct":0.42, "asOf":"实时或当日估算"},
-      "科创50": {"chgPct":-0.80, "asOf":"实时或当日估算"}
-    },
-    securities: {
-      "sh510300": {"name":"沪深300ETF", "price":4.12, "chgPct":0.35, "asOf":"实时行情"}
-    }
-  };
-  const blob = new Blob([JSON.stringify(template,null,2)],{type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'quotes_cache_template.json';
-  a.click();
-}
-
-function renderValuationGrid(){
-  const el = document.getElementById('valuationGrid');
-  if(!el) return;
-  if(S.rows.length===0){
-    el.innerHTML = '<div style="padding:14px;color:#aaa;font-size:13px">暂无资产，导入持仓后显示参照标的汇总</div>';
-    return;
-  }
-  const groups = buildExposureGroups();
-  const totalVal = S.rows.reduce((s,r)=>s+getRowValue(r),0);
-  const needs = S.rows.filter(r=>['warn','bad'].includes(getValuation(r).cls)).slice(0,8);
-  el.innerHTML = `<table><thead><tr>
-    <th>参照标的/类别</th><th>条目</th><th>责任人</th><th>同步金额</th><th>占比</th><th>较导入</th><th>估值状态</th>
-  </tr></thead><tbody>${groups.map(g=>{
-    const diff = g.value-g.base;
-    const cls = diff>0?'rise':diff<0?'fall':'flat';
-    const pct = g.base ? diff/g.base*100 : 0;
-    const statuses = Object.entries(g.statuses).map(([k,v])=>`${k} ${v}`).join(' / ');
-    return `<tr>
-      <td>${escHtml(g.name)}</td>
-      <td>${g.count}条</td>
-      <td>${escHtml([...g.owners].join('、'))}</td>
-      <td class="num">${fmt(g.value)}</td>
-      <td class="num">${totalVal?(g.value/totalVal*100).toFixed(1):'0.0'}%</td>
-      <td class="num ${cls}">${Math.abs(diff)<0.01?'—':fmtSigned(diff)+' / '+(pct>=0?'+':'')+pct.toFixed(2)+'%'}</td>
-      <td><span class="status-pill ${g.missing?'warn':'ok'}">${escHtml(statuses)}</span></td>
-    </tr>`;
-  }).join('')}</tbody></table>`+
-  (needs.length ? `<div style="padding:12px 14px;border-top:1px solid #f1f5f9;font-size:12px;color:#666">
-    <b style="color:#b45309">待补估值依据：</b>
-    ${needs.map(r=>`${escHtml(r.name||r.code||'未命名资产')}（${getValuation(r).status}）`).join('；')}
-    ${S.rows.filter(r=>['warn','bad'].includes(getValuation(r).cls)).length>needs.length?'；…':''}
-  </div>` : '');
-}
-
-function renderWatchCards(){
-  const el = document.getElementById('mktGrid');
-  if(!el) return;
-  if(S.watchlist.length===0){ el.innerHTML='<span style="color:#aaa;font-size:13px">暂无自选，输入代码添加</span>'; return; }
-  el.innerHTML = S.watchlist.map(code=>{
-    const md = mktData[code];
-    const name = md?md.name:code;
-    const price = md?md.price:'未获取';
-    const chg = md?md.chg:0;
-    const cls = chg>0?'rise':chg<0?'fall':'flat';
-    const chgStr = md?(chg>=0?'+':'')+chg+'%':'刷新后显示';
-    return `<div class="mkt-card">
-      <div class="mname">${name}</div>
-      <div class="mprice ${md?cls:'muted'}">${price}</div>
-      <div class="mchg ${cls}">${chgStr}</div>
-      <button class="mkt-card-del" data-code="${code}" title="移除">✕</button>
-    </div>`;
-  }).join('');
-  // delegation
-  el.querySelectorAll('.mkt-card-del').forEach(btn=>{
-    btn.onclick=()=>{ S.watchlist=S.watchlist.filter(c=>c!==btn.dataset.code); save(); renderWatchCards(); };
-  });
-}
-
-function renderIndexCards(){
-  const el = document.getElementById('mktIndexGrid');
-  if(!el) return;
-  el.innerHTML = INDEX_CODES.map(code=>{
-    const md = mktData[code];
-    const name = INDEX_NAMES[code]||code;
-    const price = md?md.price:'未获取';
-    const chg = md?md.chg:0;
-    const cls = chg>0?'rise':chg<0?'fall':'flat';
-    const chgStr = md?(chg>=0?'+':'')+chg+'%':'刷新后显示';
-    return `<div class="mkt-card">
-      <div class="mname">${name}</div>
-      <div class="mprice ${md?cls:'muted'}">${price}</div>
-      <div class="mchg ${cls}">${chgStr}</div>
-    </div>`;
-  }).join('');
-}
-
-function fetchMarket(){
-  const allCodes = getRealtimeCodes();
-  if(!allCodes.length) return;
-  const codes = allCodes.join(',');
-  const id = 'mkt_script_'+Date.now();
-  const old = document.getElementById('mkt_script');
-  if(old) old.remove();
-  // cleanup old v_ vars
-  allCodes.forEach(c=>{ try{ delete window['v_'+c]; }catch(e){} });
-  const s = document.createElement('script');
-  s.id = 'mkt_script';
-  s.src = `https://qt.gtimg.cn/q=${codes}&_=${Date.now()}`;
-  s.onload = ()=>{
-    allCodes.forEach(code=>{
-      const varName = 'v_'+code;
-      const raw = window[varName];
-      if(raw){
-        const parts = raw.split('~');
-        mktData[code] = {
-          name: parts[1]||code,
-          price: parseFloat(parts[3])||0,
-          chg: parseFloat(parts[32])||0
-        };
-      }
-    });
-    renderWatchCards();
-    renderIndexCards();
-    renderValuationGrid();
-    renderTable('all');
-    renderTable('A');
-    renderTable('B');
-    const ts = document.getElementById('mktTs');
-    if(ts) ts.textContent = '更新于 '+new Date().toLocaleTimeString('zh-CN');
-  };
-  s.onerror = ()=>{
-    const active = document.querySelector('.tab-pane.active');
-    if(active && active.id==='pane-market') toast('行情请求失败，请检查网络');
-    const ts = document.getElementById('mktTs');
-    if(ts) ts.textContent = '行情未获取，估值缓存仍可使用';
-  };
-  document.head.appendChild(s);
-}
-
-// ══════════════════════════════════════════════════════════════
-//  TOAST
-// ══════════════════════════════════════════════════════════════
-function toast(msg,dur=2500){
-  const el=document.getElementById('toast');
-  el.textContent=msg; el.style.display='block';
-  clearTimeout(toast._t);
-  toast._t=setTimeout(()=>el.style.display='none',dur);
-}
-
-// ══════════════════════════════════════════════════════════════
-//  INIT
-// ══════════════════════════════════════════════════════════════
-load();
-renderAll();
-initGitHubSyncUI();
-loadRemoteQuoteCache().then(()=>loadRemoteEncryptedPortfolio(false));
-// Auto-fetch market on load
-setTimeout(fetchMarket, 400);
-// Refresh every 5 min
-mktTimer = setInterval(fetchMarket, 300000);
 </script>
-
-<!-- Note Micro-Modal Editor for Responsive/Mobile Editing -->
-<div class="note-modal" id="noteEditModal">
-  <div class="note-modal-box">
-    <div class="note-modal-header" id="noteEditModalTitle">编辑分析结论</div>
-    <textarea class="note-modal-textarea" id="noteEditModalTextarea" placeholder="在此录入何刚方法论深度分析结论..."></textarea>
-    <div class="note-modal-footer">
-      <button class="btn btn-ghost" onclick="closeNoteEditModal()">取消</button>
-      <button class="btn btn-primary" onclick="confirmNoteEditModal()">保存修改</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>
