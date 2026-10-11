@@ -330,9 +330,11 @@ ul.tight li{margin-bottom:3px}
         <button onclick="connectSync()">保存并连接</button>
         <button class="ghost" onclick="pullSync(true)">以云端覆盖本机</button>
         <button class="ghost" onclick="pushSync(true)">以本机覆盖云端</button>
+        <button class="ghost" onclick="hardReload()">刷新页面（绕过缓存）</button>
       </div>
     </div>
     <div class="muted" style="margin-top:6px" id="syncHelp"></div>
+    <div class="muted" style="margin-top:6px">当前页面版本：<b id="pageVer">—</b>（手机和电脑显示的版本要一致；不一致就点上面「刷新页面」）</div>
   </div>
   <div class="card">
     <h2>数据备份</h2>
@@ -364,6 +366,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
+const PAGE_VER = '2026-10-11d';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -387,10 +390,10 @@ function load(){
     return s;
   }catch(e){ return JSON.parse(JSON.stringify(DEFAULTS)); }
 }
-function save(){
+function save(noSync){
   S.meta.updatedAt = Date.now();
   localStorage.setItem(KEY, JSON.stringify(S));
-  scheduleSync();                       // 记一笔 → 2 秒后自动上传云端
+  if(!noSync) scheduleSync();           // 记一笔 → 2 秒后自动上传云端
 }
 function scheduleSync(){
   if(!SYNC || !SYNC.token || syncing) return;
@@ -503,14 +506,22 @@ function concentration(c){
 }
 
 /* ============ 渲染 ============ */
+function updateHdsub(){
+  const el=document.getElementById('hdsub'); if(!el) return;
+  const n=(S.holdings||[]).length;
+  let tail;
+  if(!SYNC || !SYNC.token) tail = '云同步未配置 · 数据只在这台设备';
+  else if(SYNC.err)        tail = '⚠ 云同步失败：'+SYNC.err;
+  else if(SYNC.at)         tail = '云同步已连接 · 上次 '+new Date(SYNC.at).toLocaleString('zh-CN');
+  else                     tail = '云同步已连接 · 尚未同步';
+  el.textContent = (n ? ('共 '+n+' 项持仓 · ') : '') + tail;
+}
 function render(){
   const c = compute();
   renderKPI(c); renderActions(c); renderCat(c); renderAcc(c);
   renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderPlans();
   document.getElementById('mktVal').textContent = S.params.market || '—';
-  document.getElementById('hdsub').textContent =
-    S.holdings.length ? ('共 '+S.holdings.length+' 项持仓 · 数据只存在这台设备的浏览器里')
-                      : '数据只存在这台设备的浏览器里，不上传服务器';
+  updateHdsub();
   const es=document.getElementById('emptyStart'); if(es) es.classList.toggle('hidden', S.holdings.length>0);
 }
 function renderKPI(c){
@@ -958,7 +969,7 @@ function exportJSON(){
 }
 function importJSON(inp){
   const f=inp.files[0]; if(!f) return;
-  const r=new FileReader(); r.onload=()=>{ try{ S=normalize(JSON.parse(r.result)); save(); render(); flash('导入成功'); }catch(e){ flash('文件格式不对'); } };
+  const r=new FileReader(); r.onload=()=>{ try{ S=normalize(JSON.parse(r.result)); S.meta.demo=false; save(); render(); flash('导入成功'); }catch(e){ flash('文件格式不对'); } };
   r.readAsText(f); inp.value='';
 }
 
@@ -1008,14 +1019,22 @@ function ghApi(path, method, body){
     body: body?JSON.stringify(body):undefined
   }).then(async r=>{
     const j=await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(j.message || ('HTTP '+r.status));
+    if(!r.ok){ const e=new Error(j.message || ('HTTP '+r.status)); e.status=r.status; throw e; }
     return j;
   });
 }
+// 返回 null = 云端确实还没有文件；抛错 = 连不上 / 令牌无效 / 没权限（此时绝不能上传）
 async function remoteGet(){
-  const j=await ghApi('/repos/'+SYNC.repo+'/contents/data.json');
+  let j;
+  try{ j = await ghApi('/repos/'+SYNC.repo+'/contents/data.json'); }
+  catch(e){
+    if(e.status===404) return null;
+    throw new Error(e.status===401||e.status===403 ? '令牌无效或没权限（'+e.message+'）'
+                   : (e.message==='Failed to fetch' ? '连不上 GitHub，检查网络' : e.message));
+  }
   if(!j || !j.content) return null;
-  return {pack:JSON.parse(atob(j.content.replace(/\s/g,''))), sha:j.sha};
+  try{ return {pack:JSON.parse(atob(j.content.replace(/\s/g,''))), sha:j.sha}; }
+  catch(e){ throw new Error('云端文件格式不对'); }
 }
 async function remotePut(pack, sha){
   const body={message:'资产数据同步 '+new Date().toLocaleString('zh-CN'), content:btoa(JSON.stringify(pack))};
@@ -1041,6 +1060,7 @@ function paintSync(msg){
   el.innerHTML = SYNC.err
     ? ('<span class="tag act">同步失败</span> '+esc(SYNC.err))
     : ('<span class="tag ok">已连接</span> 仓库 '+esc(SYNC.repo)+' · 上次同步 '+t+' · 之后每次记一笔自动上传');
+  updateHdsub();
 }
 function connectSync(){
   const t=(document.getElementById('sToken').value||'').trim();
@@ -1057,7 +1077,22 @@ async function pushSync(manual){
   if(!window.crypto || !crypto.subtle){ if(manual) flash('当前环境不支持加密，请用 https 打开'); return; }
   syncing=true; paintSync('上传中…');
   try{
-    const cur=await remoteGet().catch(()=>null);
+    const cur=await remoteGet();          // 读云端失败就停手，绝不拿本机数据去覆盖
+    // 保护：本机没持仓、或本机是示例数据 → 不能拿它去覆盖云端的真实数据
+    const locDemo = !!(S.meta && S.meta.demo);
+    if(!manual && cur && (!(S.holdings||[]).length || locDemo)){
+      let rem=null; try{ rem=await decPack(SYNC.pass, cur.pack); }catch(e){}
+      const remDemo = !!(rem && rem.meta && rem.meta.demo);
+      if(rem && (rem.holdings||[]).length && !remDemo){
+        const n=rem.holdings.length;
+        SYNC.err = (locDemo?'本机是示例数据':'本机为空')+'，已跳过自动上传（保护云端 '+n+' 项）'; saveSync();
+        flash((locDemo?'本机是示例数据（假的）':'本机没数据')+'、云端有 '+n+' 项真实持仓，没敢覆盖。点「以云端覆盖本机」取回');
+        syncing=false; paintSync(); return;
+      }
+    }
+    if(manual && locDemo && cur && !confirm('本机现在是一套示例数据（招商银行/茅台那套假的），确定要用它覆盖云端的真实持仓吗？')){
+      SYNC.err='已取消（没覆盖云端）'; saveSync(); syncing=false; paintSync(); return;
+    }
     await remotePut(await encPack(SYNC.pass, syncPayload()), cur&&cur.sha);
     SYNC.at=Date.now(); SYNC.err=''; saveSync();
     if(manual) flash('已上传，另一台设备打开即可看到');
@@ -1073,8 +1108,8 @@ async function pullSync(manual){
     const obj=await decPack(SYNC.pass, r.pack);
     const keep=S.quotes;                       // 行情不进云端，本地保留
     S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
-    save(); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
-    if(manual) flash('已用云端数据覆盖本机');
+    save(true); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
+    if(manual) flash('已用云端数据覆盖本机（'+(S.holdings.length)+' 项持仓）');
   }catch(e){
     SYNC.err=e.message; saveSync();
     if(manual) flash((/decrypt|operation|The operation/i.test(e.message)) ? '主密码不对，解密失败' : '下载失败：'+e.message);
@@ -1084,20 +1119,37 @@ async function pullSync(manual){
 async function autoSync(){
   loadSync(); paintSync();
   if(!SYNC || !SYNC.token || !SYNC.pass) return;
-  if(!window.crypto || !crypto.subtle) return;
+  if(!window.crypto || !crypto.subtle){ SYNC.err='浏览器不支持加密（要用 https 打开）'; saveSync(); paintSync(); return; }
+  let r;
+  try{ r=await remoteGet(); }
+  catch(e){                                    // 连不上 / 令牌无效：只提示，绝不上传
+    SYNC.err=e.message; saveSync();
+    flash('云同步没连上：'+e.message);
+    paintSync(); return;
+  }
   try{
-    const r=await remoteGet().catch(()=>null);
-    if(!r){ await pushSync(); return; }
+    if(!r){ await pushSync(); paintSync(); return; }
     const obj=await decPack(SYNC.pass, r.pack);
     const remAt=(obj.meta&&obj.meta.updatedAt)||0, locAt=(S.meta&&S.meta.updatedAt)||0;
-    if(remAt > locAt + 1000){
+    const locDemo=!!(S.meta&&S.meta.demo), remDemo=!!(obj.meta&&obj.meta.demo);
+    if(locDemo && !remDemo){                 // 本机是示例、云端是真实数据 → 无条件取回
       const keep=S.quotes;
       S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
-      save(); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
-      flash('已从云端同步最新数据');
+      save(true); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
+      flash('本机是示例数据，已换成云端的 '+S.holdings.length+' 项真实持仓');
+    }else if(!locDemo && remDemo){           // 本机真实、云端是示例 → 把真实数据传上去
+      await pushSync();
+    }else if(remAt > locAt + 1000){
+      const keep=S.quotes;
+      S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
+      save(true); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
+      flash('已从云端同步最新数据（'+(S.holdings.length)+' 项持仓）');
     }else if(locAt > remAt + 1000){ await pushSync(); }
     else { SYNC.at=Date.now(); saveSync(); }
-  }catch(e){ SYNC.err=e.message; saveSync(); }
+  }catch(e){
+    SYNC.err=e.message; saveSync();
+    flash(/decrypt|operation|The operation/i.test(e.message) ? '主密码不对，云端数据解不开' : '云同步失败：'+e.message);
+  }
   paintSync();
 }
 function clearAll(){ if(!confirm('清空全部持仓、流水和快照？此操作不可撤销。')) return; S=JSON.parse(JSON.stringify(DEFAULTS)); save(); render(); }
@@ -1164,6 +1216,7 @@ function loadDemo(){
     {id:'pDemo2', name:'黄金周投', assetId:'d10', assetName:'黄金积存', fromId:'', fromName:'新增资金',
      amount:500, freq:'weekly', day:3, start:day(-28), end:'', status:'active', executed:[], skipped:[]}
   ];
+  S.meta.demo=true;                            // 打标记：这是假数据，同步时让位给真实数据
   save(); syncPlans(true); snapshotDaily(); render(); refreshPlanSelects(); flash('已载入示例数据（含 2 个定投计划，到期期次已自动入账）');
 }
 
@@ -1217,16 +1270,21 @@ document.getElementById('nav').addEventListener('click', e=>{
   if(TAB==='ledger') refreshAssetSelect();
   if(TAB==='plan') refreshPlanSelects();
 });
-fillSelects(); syncPlans(true); snapshotDaily(); render(); refreshAssetSelect(); refreshPlanSelects();
+fillSelects(); render(); refreshAssetSelect(); refreshPlanSelects();
 loadSync();
-{ const sr=document.getElementById('sRepo'); if(sr && SYNC && SYNC.repo && !sr.value) sr.value=SYNC.repo; }
-autoSync();                                  // 打开页面自动与云端对齐（手机/电脑互通）
+{ const sr=document.getElementById('sRepo'); if(sr && !sr.value) sr.value=(SYNC&&SYNC.repo)||'HuangJun722/asset-cockpit-data'; }
+const pv=document.getElementById('pageVer'); if(pv) pv.textContent=PAGE_VER;
+// 先与云端对齐，再补记定投 / 写快照（否则本机 updatedAt 会被顶到最新，反过来覆盖云端）
+autoSync().then(afterSync).catch(afterSync);
+function afterSync(){ syncPlans(true); snapshotDaily(); render(); }
 // 上线后：若同目录存在 data/quotes.json（由定时任务每日写入），自动读取
 if(location.protocol.indexOf('http')===0){
   fetch('data/quotes.json').then(r=>r.ok?r.json():null).then(j=>{
-    if(j && j.quotes){ Object.keys(j.quotes).forEach(k=>S.quotes[k]=j.quotes[k]); S.meta.quoteDate=j.date||today(); save(); render(); }
+    if(j && j.quotes){ Object.keys(j.quotes).forEach(k=>S.quotes[k]=j.quotes[k]); S.meta.quoteDate=j.date||today(); save(true); render(); }
   }).catch(()=>{});
 }
+// 手机有时候会打开缓存里的旧页面，这个按钮强制拉最新版
+function hardReload(){ location.replace(location.pathname+'?v='+Date.now()); }
 </script>
 </body>
 </html>
