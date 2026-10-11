@@ -320,7 +320,25 @@ ul.tight li{margin-bottom:3px}
     </div>
   </div>
   <div class="card">
-    <h2>云同步（手机 / 电脑互通）</h2>
+    <h2>加密资产文件（手机 / 电脑互传）</h2>
+    <div class="muted">把资产用<b>主密码</b>加密成一个文件（<code>portfolio.encrypted.json</code>）。这个文件是密文，放在哪里都安全。
+      另一台设备打开页面会自动发现它，输入同一个主密码就能看——<b>不需要令牌、不需要账号、不联网同步</b>。</div>
+    <div id="encState" style="margin:8px 0"></div>
+    <div class="row">
+      <div><span class="muted">主密码（至少 8 位，忘了无法恢复）</span><input id="ePass" type="password" placeholder="两台设备要填一样的"></div>
+      <div class="row" style="margin-top:8px">
+        <button onclick="makeEncFile()">生成加密文件（下载）</button>
+        <button class="ghost" onclick="document.getElementById('encFile').click()">从加密文件载入</button>
+        <input type="file" id="encFile" accept=".json" class="hidden" onchange="loadEncFile(this)">
+      </div>
+    </div>
+    <div style="margin-top:6px"><label class="muted"><input type="checkbox" id="eRemember"> 记住这台设备的密码（下次自动打开）</label></div>
+    <div class="muted" style="margin-top:6px">
+      怎么用：电脑上记完账 → 点「生成加密文件」→ 把下载的文件交给 AI 提交（或直接传到手机）→ 手机打开页面输入主密码即可。
+    </div>
+  </div>
+  <div class="card hidden">
+    <h2>云同步（已停用）</h2>
     <div class="muted">数据用主密码加密后存进<b>你自己的 GitHub 私有仓库</b>。填一次，之后记一笔自动上传；另一台设备打开自动拉取，<b>不需要手动点同步</b>。没有第三方服务器参与，GitHub 拿到的只是一串乱码。</div>
     <div id="syncState" style="margin:8px 0"></div>
     <div class="row">
@@ -369,7 +387,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-11i';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-11j';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1283,6 +1301,7 @@ fillSelects(); render(); refreshAssetSelect(); refreshPlanSelects();
 loadSync();
 { const sr=document.getElementById('sRepo'); if(sr && !sr.value) sr.value=(SYNC&&SYNC.repo)||'HuangJun722/asset-cockpit-data'; }
 const pv=document.getElementById('pageVer'); if(pv) pv.textContent=PAGE_VER;
+tryLoadEnc();                                // 页面自带加密资产文件时，输一次密码就能看
 // 先与云端对齐，再补记定投 / 写快照（否则本机 updatedAt 会被顶到最新，反过来覆盖云端）
 autoSync().then(afterSync).catch(afterSync);
 function afterSync(){ syncPlans(true); snapshotDaily(); render(); }
@@ -1291,6 +1310,72 @@ if(location.protocol.indexOf('http')===0){
   fetch('data/quotes.json').then(r=>r.ok?r.json():null).then(j=>{
     if(j && j.quotes){ Object.keys(j.quotes).forEach(k=>S.quotes[k]=j.quotes[k]); S.meta.quoteDate=j.date||today(); save(true); render(); }
   }).catch(()=>{});
+}
+/* ============ 加密资产文件：跨设备只靠一个主密码 ============ */
+const ENC_URL = 'data/portfolio.encrypted.json';
+const PASS_KEY = 'amp_enc_pass';
+function encPassInput(){ return (document.getElementById('ePass') && document.getElementById('ePass').value || '').trim(); }
+function encBlobDownload(name, text){
+  const blob=new Blob([text],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+}
+async function makeEncFile(){
+  const p=encPassInput();
+  if(!p || p.length<8){ flash('先填主密码，至少 8 位'); return; }
+  try{
+    const pack=await encPack(p, syncPayload());
+    encBlobDownload('portfolio.encrypted.json', JSON.stringify(pack, null, 2));
+    if(document.getElementById('eRemember') && document.getElementById('eRemember').checked){ localStorage.setItem(PASS_KEY,p); }
+    flash('已生成 portfolio.encrypted.json，把它交给 AI 提交即可');
+  }catch(e){ flash('生成失败：'+e.message); }
+}
+async function applyEncPack(pack, pass){
+  const obj=await decPack(pass, pack);
+  const keep=S.quotes;
+  S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{}); S.meta.demo=false;
+  save(); render();
+  return S.holdings.length;
+}
+async function loadEncFile(inp){
+  const f=inp.files[0]; if(!f) return;
+  const p=encPassInput() || prompt('输入主密码');
+  if(!p) { inp.value=''; return; }
+  const r=new FileReader();
+  r.onload=async ()=>{
+    try{ const n=await applyEncPack(JSON.parse(r.result), p); flash('已载入 '+n+' 项持仓'); }
+    catch(e){ flash(/operation|decrypt/i.test(e.message)?'主密码不对':'文件读不了：'+e.message); }
+    inp.value='';
+  };
+  r.readAsText(f);
+}
+async function tryLoadEnc(){
+  let pack=null;
+  try{
+    const r=await fetch(ENC_URL+'?t='+Date.now());
+    if(!r.ok) return;
+    pack=await r.json();
+  }catch(e){ return; }
+  const st=document.getElementById('encState');
+  const saved=localStorage.getItem(PASS_KEY);
+  if(saved){
+    try{ const n=await applyEncPack(pack, saved); flash('已用记住的密码载入 '+n+' 项持仓'); return; }
+    catch(e){ localStorage.removeItem(PASS_KEY); }
+  }
+  if(!st) return;
+  const n=(S.holdings||[]).length;
+  st.innerHTML = '<span class="tag info">发现加密资产文件</span> ' +
+    '<button onclick="unlockEnc()">输入主密码载入</button>' + (n?('<span class="muted">（本机现有 '+n+' 项）</span>'):'');
+  window.__encPack = pack;
+}
+async function unlockEnc(){
+  const p=encPassInput() || prompt('输入主密码');
+  if(!p) return;
+  try{
+    const n=await applyEncPack(window.__encPack, p);
+    if(confirm('记住这台设备的密码，下次自动打开？')) localStorage.setItem(PASS_KEY,p);
+    const st=document.getElementById('encState'); if(st) st.innerHTML='<span class="tag ok">已载入</span> '+n+' 项持仓';
+    flash('已载入 '+n+' 项持仓');
+  }catch(e){ flash(/operation|decrypt/i.test(e.message)?'主密码不对':'载入失败：'+e.message); }
 }
 // 手机有时候会打开缓存里的旧页面，这个按钮强制拉最新版
 function hardReload(){ location.replace(location.pathname+'?v='+Date.now()); }
