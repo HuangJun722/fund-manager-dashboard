@@ -366,7 +366,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-11d';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-11e';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1078,15 +1078,14 @@ async function pushSync(manual){
   syncing=true; paintSync('上传中…');
   try{
     const cur=await remoteGet();          // 读云端失败就停手，绝不拿本机数据去覆盖
-    // 保护：本机没持仓、或本机是示例数据 → 不能拿它去覆盖云端的真实数据
+    // 保护：本机没持仓、或本机是示例数据 → 一律不许自动上传（示例数据是假的，没资格进云端）
     const locDemo = !!(S.meta && S.meta.demo);
     if(!manual && cur && (!(S.holdings||[]).length || locDemo)){
       let rem=null; try{ rem=await decPack(SYNC.pass, cur.pack); }catch(e){}
-      const remDemo = !!(rem && rem.meta && rem.meta.demo);
-      if(rem && (rem.holdings||[]).length && !remDemo){
-        const n=rem.holdings.length;
+      const n = rem ? (rem.holdings||[]).length : 0;
+      if(n){
         SYNC.err = (locDemo?'本机是示例数据':'本机为空')+'，已跳过自动上传（保护云端 '+n+' 项）'; saveSync();
-        flash((locDemo?'本机是示例数据（假的）':'本机没数据')+'、云端有 '+n+' 项真实持仓，没敢覆盖。点「以云端覆盖本机」取回');
+        flash((locDemo?'本机是示例数据（假的）':'本机没数据')+'，云端有 '+n+' 项，没敢覆盖。要取回就点「以云端覆盖本机」');
         syncing=false; paintSync(); return;
       }
     }
@@ -1106,6 +1105,12 @@ async function pullSync(manual){
     const r=await remoteGet();
     if(!r){ if(manual) flash('云端还没有数据'); syncing=false; paintSync(); return; }
     const obj=await decPack(SYNC.pass, r.pack);
+    const remDemo=!!(obj.meta&&obj.meta.demo);
+    const locReal=(S.holdings||[]).length>0 && !(S.meta&&S.meta.demo);
+    if(manual && remDemo && locReal &&
+       !confirm('云端现在是一套示例数据（招商银行/茅台那套假的），本机是你的真实持仓。确定要用示例覆盖本机吗？')){
+      flash('已取消，本机真实持仓没动'); syncing=false; paintSync(); return;
+    }
     const keep=S.quotes;                       // 行情不进云端，本地保留
     S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
     save(true); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
@@ -1132,13 +1137,14 @@ async function autoSync(){
     const obj=await decPack(SYNC.pass, r.pack);
     const remAt=(obj.meta&&obj.meta.updatedAt)||0, locAt=(S.meta&&S.meta.updatedAt)||0;
     const locDemo=!!(S.meta&&S.meta.demo), remDemo=!!(obj.meta&&obj.meta.demo);
-    if(locDemo && !remDemo){                 // 本机是示例、云端是真实数据 → 无条件取回
+    const locReal=(S.holdings||[]).length>0 && !locDemo;
+    if(locReal && remDemo){                  // 本机是真数据、云端被示例污染 → 传上去修复云端
+      await pushSync();
+    }else if(locDemo && !remDemo){           // 本机是示例、云端是真实数据 → 无条件取回
       const keep=S.quotes;
       S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
       save(true); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
       flash('本机是示例数据，已换成云端的 '+S.holdings.length+' 项真实持仓');
-    }else if(!locDemo && remDemo){           // 本机真实、云端是示例 → 把真实数据传上去
-      await pushSync();
     }else if(remAt > locAt + 1000){
       const keep=S.quotes;
       S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
