@@ -1024,6 +1024,13 @@ async function remotePut(pack, sha){
 }
 function syncPayload(){ const o=JSON.parse(JSON.stringify(S)); delete o.quotes; return o; }
 function paintSync(msg){
+  const help=document.getElementById('syncHelp');
+  if(help) help.innerHTML =
+    '令牌怎么拿：<a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">点这里打开 GitHub 令牌页面</a> → ' +
+    '① Repository access 选 <b>Only select repositories</b>，只勾你的数据仓库 → ' +
+    '② Permissions 里找到 <b>Contents</b>，选 <b>Read and write</b> → ' +
+    '③ 有效期选 1 年 → 生成，把 <code>github_pat_...</code> 那串粘到上面。' +
+    '<br>主密码建议 12 位以上、别用生日和常见词——<b>忘了就永远打不开，没有任何找回办法</b>。';
   const el=document.getElementById('syncState'); if(!el) return;
   if(!SYNC || !SYNC.token){
     el.innerHTML='<span class="tag warn">未配置</span> 填好令牌 + 仓库 + 主密码后，手机和电脑自动互通';
