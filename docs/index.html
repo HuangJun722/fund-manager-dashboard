@@ -366,7 +366,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-11e';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-11f';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1291,6 +1291,17 @@ if(location.protocol.indexOf('http')===0){
 }
 // 手机有时候会打开缓存里的旧页面，这个按钮强制拉最新版
 function hardReload(){ location.replace(location.pathname+'?v='+Date.now()); }
+// 接收本地「一键导入」页面送进来的数据（只有本机双击打开的那个小页面会发这个）
+window.addEventListener('message', e=>{
+  const d=e.data;
+  if(!d || d.type!=='amp-import' || !d.payload) return;
+  try{
+    S=normalize(d.payload); S.meta.demo=false;
+    save(); render();
+    flash('已导入 '+S.holdings.length+' 项持仓，正在同步到云端…');
+    setTimeout(()=>pushSync(true), 800);
+  }catch(err){ flash('导入失败：'+err.message); }
+});
 </script>
 </body>
 </html>
