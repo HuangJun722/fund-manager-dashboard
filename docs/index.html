@@ -317,13 +317,31 @@ ul.tight li{margin-bottom:3px}
     </div>
   </div>
   <div class="card">
+    <h2>云同步（手机 / 电脑互通）</h2>
+    <div class="muted">数据用主密码加密后存进<b>你自己的 GitHub 私有仓库</b>。填一次，之后记一笔自动上传；另一台设备打开自动拉取，<b>不需要手动点同步</b>。没有第三方服务器参与，GitHub 拿到的只是一串乱码。</div>
+    <div id="syncState" style="margin:8px 0"></div>
+    <div class="row">
+      <div style="flex:2"><span class="muted">GitHub 令牌（只授权那个私有仓库）</span><input id="sToken" type="password" placeholder="github_pat_..."></div>
+      <div><span class="muted">仓库（用户名/仓库名）</span><input id="sRepo" placeholder="HuangJun722/asset-cockpit-data"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div><span class="muted">主密码（加密用，忘了无法恢复）</span><input id="sPass" type="password" placeholder="至少 8 位"></div>
+      <div style="display:flex;align-items:flex-end;gap:6px">
+        <button onclick="connectSync()">保存并连接</button>
+        <button class="ghost" onclick="pullSync(true)">以云端覆盖本机</button>
+        <button class="ghost" onclick="pushSync(true)">以本机覆盖云端</button>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:6px" id="syncHelp"></div>
+  </div>
+  <div class="card">
     <h2>数据备份</h2>
     <div class="row">
-      <button class="ghost" onclick="exportJSON()">导出 JSON</button>
+      <button class="ghost" onclick="exportJSON()">导出 JSON（明文，别外传）</button>
       <button class="ghost" onclick="document.getElementById('jsonFile').click()">导入 JSON</button>
       <input type="file" id="jsonFile" accept=".json" class="hidden" onchange="importJSON(this)">
     </div>
-    <div class="muted" style="margin-top:6px">加密云同步（自动同步、免手动）属于 M2 收尾项，届时在这里配置令牌与主密码。</div>
+    <div class="muted" style="margin-top:6px">导出的文件是明文、含你的真实持仓，只留本地。</div>
   </div>
 </section>
 </main>
@@ -369,7 +387,16 @@ function load(){
     return s;
   }catch(e){ return JSON.parse(JSON.stringify(DEFAULTS)); }
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(S)); }
+function save(){
+  S.meta.updatedAt = Date.now();
+  localStorage.setItem(KEY, JSON.stringify(S));
+  scheduleSync();                       // 记一笔 → 2 秒后自动上传云端
+}
+function scheduleSync(){
+  if(!SYNC || !SYNC.token || syncing) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(()=>pushSync(false), 2000);
+}
 function flash(msg){ const f=document.getElementById('flash'); f.textContent=msg; f.classList.add('show'); setTimeout(()=>f.classList.remove('show'),1800); }
 // 用本地日期，不用 toISOString（UTC 会导致早上 8 点前日期错一天）
 const today = ()=>{ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
@@ -931,8 +958,140 @@ function exportJSON(){
 }
 function importJSON(inp){
   const f=inp.files[0]; if(!f) return;
-  const r=new FileReader(); r.onload=()=>{ try{ S=JSON.parse(r.result); save(); render(); flash('导入成功'); }catch(e){ flash('文件格式不对'); } };
+  const r=new FileReader(); r.onload=()=>{ try{ S=normalize(JSON.parse(r.result)); save(); render(); flash('导入成功'); }catch(e){ flash('文件格式不对'); } };
   r.readAsText(f); inp.value='';
+}
+
+/* ============ 云同步：端到端加密 → 你自己的 GitHub 私有仓库 ============
+   一句话原理：数据在你浏览器里用主密码加密成一串乱码，才上传到 GitHub；
+   GitHub（和任何拿到仓库的人）只有乱码，没有主密码解不开。换设备填同样的
+   令牌 + 主密码，就能解密还原，从而实现手机电脑互通。 */
+const SYNC_KEY='amp_sync_v1';
+let SYNC=null, syncTimer=null, syncing=false;
+
+function loadSync(){ try{ SYNC=JSON.parse(localStorage.getItem(SYNC_KEY)||'null'); }catch(e){ SYNC=null; } }
+function saveSync(){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify(SYNC)); }catch(e){} }
+function b64e(u8){ let s=''; for(let i=0;i<u8.length;i++) s+=String.fromCharCode(u8[i]); return btoa(s); }
+function b64d(str){ const s=atob(str); const u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; }
+function normalize(s){
+  s = Object.assign(JSON.parse(JSON.stringify(DEFAULTS)), s||{});
+  s.params = Object.assign({}, DEFAULTS.params, s.params||{});
+  s.params.fx = Object.assign({}, DEFAULTS.params.fx, (s.params.fx||{}));
+  s.meta = Object.assign({}, DEFAULTS.meta, s.meta||{});
+  ['holdings','transactions','snapshots','plans'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  if(!s.quotes) s.quotes={};
+  if(!s.targets) s.targets=Object.assign({}, DEFAULTS.targets);
+  return s;
+}
+async function deriveKey(pass, salt){
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt:salt, iterations:150000, hash:'SHA-256'},
+    km, {name:'AES-GCM', length:256}, false, ['encrypt','decrypt']);
+}
+async function encPack(pass, obj){
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const key=await deriveKey(pass, salt);
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, key, new TextEncoder().encode(JSON.stringify(obj)));
+  return {v:1, alg:'AES-GCM/PBKDF2', salt:b64e(salt), iv:b64e(iv), data:b64e(new Uint8Array(ct))};
+}
+async function decPack(pass, p){
+  const key=await deriveKey(pass, b64d(p.salt));
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM', iv:b64d(p.iv)}, key, b64d(p.data));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+function ghApi(path, method, body){
+  return fetch('https://api.github.com'+path, {
+    method: method||'GET',
+    headers: {Authorization:'Bearer '+SYNC.token, Accept:'application/vnd.github+json',
+              'Content-Type':'application/json', 'X-GitHub-Api-Version':'2022-11-28'},
+    body: body?JSON.stringify(body):undefined
+  }).then(async r=>{
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.message || ('HTTP '+r.status));
+    return j;
+  });
+}
+async function remoteGet(){
+  const j=await ghApi('/repos/'+SYNC.repo+'/contents/data.json');
+  if(!j || !j.content) return null;
+  return {pack:JSON.parse(atob(j.content.replace(/\s/g,''))), sha:j.sha};
+}
+async function remotePut(pack, sha){
+  const body={message:'资产数据同步 '+new Date().toLocaleString('zh-CN'), content:btoa(JSON.stringify(pack))};
+  if(sha) body.sha=sha;
+  return ghApi('/repos/'+SYNC.repo+'/contents/data.json','PUT',body);
+}
+function syncPayload(){ const o=JSON.parse(JSON.stringify(S)); delete o.quotes; return o; }
+function paintSync(msg){
+  const el=document.getElementById('syncState'); if(!el) return;
+  if(!SYNC || !SYNC.token){
+    el.innerHTML='<span class="tag warn">未配置</span> 填好令牌 + 仓库 + 主密码后，手机和电脑自动互通';
+    return;
+  }
+  if(msg){ el.innerHTML='<span class="tag">'+esc(msg)+'</span>'; return; }
+  const t = SYNC.at ? new Date(SYNC.at).toLocaleString('zh-CN') : '从未';
+  el.innerHTML = SYNC.err
+    ? ('<span class="tag act">同步失败</span> '+esc(SYNC.err))
+    : ('<span class="tag ok">已连接</span> 仓库 '+esc(SYNC.repo)+' · 上次同步 '+t+' · 之后每次记一笔自动上传');
+}
+function connectSync(){
+  const t=(document.getElementById('sToken').value||'').trim();
+  const r=(document.getElementById('sRepo').value||'').trim();
+  const p=(document.getElementById('sPass').value||'');
+  if(!t || !r){ flash('令牌和仓库都要填'); return; }
+  if(p && p.length<8){ flash('主密码至少 8 位'); return; }
+  if(!p && !(SYNC && SYNC.pass)){ flash('第一次必须设主密码（之后不用再填）'); return; }
+  SYNC={token:t, repo:r, pass:(p || SYNC.pass), at:(SYNC&&SYNC.at)||0, err:''};
+  saveSync(); paintSync(); flash('已连接，正在同步…'); autoSync();
+}
+async function pushSync(manual){
+  if(!SYNC || !SYNC.token){ if(manual) flash('先配置云同步'); return; }
+  if(!window.crypto || !crypto.subtle){ if(manual) flash('当前环境不支持加密，请用 https 打开'); return; }
+  syncing=true; paintSync('上传中…');
+  try{
+    const cur=await remoteGet().catch(()=>null);
+    await remotePut(await encPack(SYNC.pass, syncPayload()), cur&&cur.sha);
+    SYNC.at=Date.now(); SYNC.err=''; saveSync();
+    if(manual) flash('已上传，另一台设备打开即可看到');
+  }catch(e){ SYNC.err=e.message; saveSync(); if(manual) flash('上传失败：'+e.message); }
+  syncing=false; paintSync();
+}
+async function pullSync(manual){
+  if(!SYNC || !SYNC.token){ if(manual) flash('先配置云同步'); return; }
+  syncing=true; paintSync('下载中…');
+  try{
+    const r=await remoteGet();
+    if(!r){ if(manual) flash('云端还没有数据'); syncing=false; paintSync(); return; }
+    const obj=await decPack(SYNC.pass, r.pack);
+    const keep=S.quotes;                       // 行情不进云端，本地保留
+    S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
+    save(); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
+    if(manual) flash('已用云端数据覆盖本机');
+  }catch(e){
+    SYNC.err=e.message; saveSync();
+    if(manual) flash((/decrypt|operation|The operation/i.test(e.message)) ? '主密码不对，解密失败' : '下载失败：'+e.message);
+  }
+  syncing=false; paintSync();
+}
+async function autoSync(){
+  loadSync(); paintSync();
+  if(!SYNC || !SYNC.token || !SYNC.pass) return;
+  if(!window.crypto || !crypto.subtle) return;
+  try{
+    const r=await remoteGet().catch(()=>null);
+    if(!r){ await pushSync(); return; }
+    const obj=await decPack(SYNC.pass, r.pack);
+    const remAt=(obj.meta&&obj.meta.updatedAt)||0, locAt=(S.meta&&S.meta.updatedAt)||0;
+    if(remAt > locAt + 1000){
+      const keep=S.quotes;
+      S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{});
+      save(); render(); SYNC.at=Date.now(); SYNC.err=''; saveSync();
+      flash('已从云端同步最新数据');
+    }else if(locAt > remAt + 1000){ await pushSync(); }
+    else { SYNC.at=Date.now(); saveSync(); }
+  }catch(e){ SYNC.err=e.message; saveSync(); }
+  paintSync();
 }
 function clearAll(){ if(!confirm('清空全部持仓、流水和快照？此操作不可撤销。')) return; S=JSON.parse(JSON.stringify(DEFAULTS)); save(); render(); }
 
@@ -1052,6 +1211,9 @@ document.getElementById('nav').addEventListener('click', e=>{
   if(TAB==='plan') refreshPlanSelects();
 });
 fillSelects(); syncPlans(true); snapshotDaily(); render(); refreshAssetSelect(); refreshPlanSelects();
+loadSync();
+{ const sr=document.getElementById('sRepo'); if(sr && SYNC && SYNC.repo && !sr.value) sr.value=SYNC.repo; }
+autoSync();                                  // 打开页面自动与云端对齐（手机/电脑互通）
 // 上线后：若同目录存在 data/quotes.json（由定时任务每日写入），自动读取
 if(location.protocol.indexOf('http')===0){
   fetch('data/quotes.json').then(r=>r.ok?r.json():null).then(j=>{
