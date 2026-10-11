@@ -2,6 +2,9 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>资产驾驶舱</title>
@@ -366,7 +369,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-11g';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-11i';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1291,6 +1294,21 @@ if(location.protocol.indexOf('http')===0){
 }
 // 手机有时候会打开缓存里的旧页面，这个按钮强制拉最新版
 function hardReload(){ location.replace(location.pathname+'?v='+Date.now()); }
+/* 自动更新：地址栏不用带任何版本号。
+   原理——页面每次打开都去问一句「线上最新版本号是多少」（version.json，带时间戳所以不会被缓存），
+   跟自己身上的版本号不一样就自动跳到最新版，然后把地址栏里的 ?v=xxx 抹掉，保持地址干净。
+   这样你收藏的永远是同一个网址，打开却总是最新的页面。 */
+(async function ensureFresh(){
+  try{
+    const r = await fetch('version.json?t='+Date.now(), {cache:'no-store'});
+    const j = await r.json();
+    if(j && j.ver && j.ver !== PAGE_VER){
+      location.replace(location.pathname + '?v=' + encodeURIComponent(j.ver));
+      return;
+    }
+    if(location.search && history.replaceState) history.replaceState(null, '', location.pathname);
+  }catch(e){ /* 问不到就当自己是最新版，照常使用 */ }
+})();
 // 接收本地「一键导入」页面送进来的数据（只有本机双击打开的那个小页面会发这个）
 window.addEventListener('message', e=>{
   const d=e.data;
