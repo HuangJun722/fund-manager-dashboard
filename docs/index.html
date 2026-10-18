@@ -383,7 +383,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-18d';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-18e';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1310,7 +1310,17 @@ if(location.protocol.indexOf('http')===0){
 }
 /* ============ 加密资产文件：跨设备只靠一个主密码 ============ */
 const ENC_URL = 'data/portfolio.encrypted.json';
-const PASS_KEY = 'amp_enc_pass';
+const PASS_KEY = 'amp_enc_pass';      // 记住的主密码（仅存在这台设备）
+const ENC_FP_KEY = 'amp_enc_fp';      // 上次成功解密时，加密文件的「指纹」
+/* 指纹的作用：文件没变，就说明本机这份已解密数据 == 文件内容，什么都不问。
+   只有电脑生成新文件并上线后（指纹变了），才需要重新输密码。 */
+function encFp(pack, res){
+  try{ const h=res && (res.headers && res.headers.get('etag')); if(h) return h; }catch(e){}
+  try{ const h=res && (res.headers && res.headers.get('last-modified')); if(h) return h; }catch(e){}
+  // 没有响应头信息时用内容本身：密文的开头+结尾+长度，足以识别变化
+  const d=pack && pack.data || '';
+  return 'c' + d.length + '_' + d.slice(0,24) + '_' + d.slice(-24);
+}
 function encPassInput(){ return (document.getElementById('ePass') && document.getElementById('ePass').value || '').trim(); }
 function encBlobDownload(name, text){
   const blob=new Blob([text],{type:'application/json'});
@@ -1350,11 +1360,11 @@ async function loadEncFile(inp){
   r.readAsText(f);
 }
 async function tryLoadEnc(){
-  let pack=null, why='';
+  let pack=null, why='', res=null;
   try{
-    const r=await fetch(ENC_URL+'?t='+Date.now(), {cache:'no-store'});
-    if(!r.ok){ why='HTTP '+r.status; }
-    else { pack=await r.json(); if(!pack || !pack.salt) why='文件内容不完整'; }
+    res=await fetch(ENC_URL+'?t='+Date.now(), {cache:'no-store'});
+    if(!res.ok){ why='HTTP '+res.status; }
+    else { pack=await res.json(); if(!pack || !pack.salt) why='文件内容不完整'; }
   }catch(e){ why=(e&&e.message)||'网络错误'; }
   if(!pack){
     // 读不到加密文件：不打扰首页，但在设置页留一句人话，别让用户瞎点
@@ -1362,20 +1372,37 @@ async function tryLoadEnc(){
     if(st) st.innerHTML='<span class="tag act">读不到加密资产文件</span> <span class="muted">'+esc(why)+'，打开页面时点「解锁」会自动重试</span>';
     return;
   }
+  const fp=encFp(pack, res);
+  const localFp=localStorage.getItem(ENC_FP_KEY);
+  const fileChanged = (localFp !== fp);            // 电脑生成新文件上线了？
+  // 1) 记住着密码 + 文件变了 → 静默自动更新，连密码条都不闪
   const saved=localStorage.getItem(PASS_KEY);
-  if(saved){
-    try{ const n=await applyEncPack(pack, saved); flash('已用记住的密码载入 '+n+' 项持仓'); return; }
-    catch(e){ localStorage.removeItem(PASS_KEY); }
+  if(saved && fileChanged){
+    try{
+      const n=await applyEncPack(pack, saved);
+      localStorage.setItem(ENC_FP_KEY, fp);
+      flash('资产数据有新版本，已自动更新（'+n+' 项）');
+      return;
+    }catch(e){ localStorage.removeItem(PASS_KEY); }  // 密码被电脑端改了 → 落入手动
   }
-  window.__encPack = pack;
-  // 顶部全局解锁条（不藏在设置页，手机上一打开就能看到）
+  if(saved && !fileChanged){
+    // 文件没变，本机就是最新内容：解密一次只为刷新内存（无感），不弹任何东西
+    try{ await applyEncPack(pack, saved); }catch(e){}
+    return;
+  }
+  // 2) 没记住密码：文件也没变、本机已经有解密好的数据 → 直接看，什么都不问
+  if(!fileChanged && (S.holdings||[]).length){ return; }
+  // 3) 才需要用户输密码：要么第一次用这台设备，要么电脑更新了文件
+  window.__encPack = pack; window.__encFp = fp;
   const bn=document.getElementById('encBanner');
   if(bn){
     const n=(S.holdings||[]).length;
     const sub=document.getElementById('encBannerSub');
-    if(sub) sub.innerHTML = n
-      ? ('这台设备现在存着 '+n+' 项<b>非真实数据</b>（示例或旧数据），输对主密码后会换成你的真实持仓')
-      : '输入主密码即可载入真实持仓';
+    if(sub) sub.innerHTML = fileChanged
+      ? ('你的资产数据<b>有新版本</b>（电脑端更新过），输入主密码即可取回最新内容')
+      : (n
+          ? ('这台设备现在存着 '+n+' 项<b>非真实数据</b>（示例或旧数据），输对主密码后会换成你的真实持仓')
+          : '输入主密码即可载入真实持仓');
     bn.classList.remove('hidden');
   }
   // 设置页里的入口也保留一份
@@ -1400,23 +1427,26 @@ async function unlockEnc(){
 async function unlockEncWith(p, fromTop){
   try{
     // 兜底：页面刚打开 / 网络慢 / 内存里的 pack 还没到位 → 当场重新拉一次，不再报看不懂的错
-    let pack=window.__encPack;
+    let pack=window.__encPack, fp=window.__encFp;
     if(!pack || !pack.salt){
       const r=await fetch(ENC_URL+'?t='+Date.now(), {cache:'no-store'});
       if(!r.ok) throw new Error('读不到加密文件（HTTP '+r.status+'），稍等再试');
-      pack=await r.json(); window.__encPack=pack;
+      pack=await r.json();
+      if(!pack || !pack.salt) throw new Error('加密文件内容不完整');
+      fp=encFp(pack, r); window.__encPack=pack; window.__encFp=fp;
     }
     const n=await applyEncPack(pack, p);
-    if(confirm('记住这台设备的密码，下次打开自动载入？')){
-      localStorage.setItem(PASS_KEY,p);
-    }
+    // 解锁成功 = 信任这台设备：直接记住密码，不再弹窗问「要记住吗」
+    // （以前就是这句问话，用户习惯性点取消，于是每次打开都要重新输）
+    localStorage.setItem(PASS_KEY, p);
+    if(fp) localStorage.setItem(ENC_FP_KEY, fp);
     if(fromTop){
       const bn=document.getElementById('encBanner');
       if(bn) bn.classList.add('hidden');
       document.getElementById('ePassTop').value='';
     }
     const st=document.getElementById('encState');
-    if(st) st.innerHTML='<span class="tag ok">已载入</span> '+n+' 项持仓';
+    if(st) st.innerHTML='<span class="tag ok">已载入</span> '+n+' 项持仓，密码已记住（这台设备以后自动打开）';
     flash('已载入 '+n+' 项真实持仓');
   }catch(e){
     flash(/operation|decrypt|bad decrypt/i.test(e.message)?'主密码不对，再试一次':'载入失败：'+e.message);
