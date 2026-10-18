@@ -353,26 +353,6 @@ ul.tight li{margin-bottom:3px}
       怎么用：电脑上记完账 → 点「生成加密文件」→ 把下载的文件交给 AI 提交（或直接传到手机）→ 手机打开页面输入主密码即可。
     </div>
   </div>
-  <div class="card hidden">
-    <h2>云同步（已停用）</h2>
-    <div class="muted">数据用主密码加密后存进<b>你自己的 GitHub 私有仓库</b>。填一次，之后记一笔自动上传；另一台设备打开自动拉取，<b>不需要手动点同步</b>。没有第三方服务器参与，GitHub 拿到的只是一串乱码。</div>
-    <div id="syncState" style="margin:8px 0"></div>
-    <div class="row">
-      <div style="flex:2"><span class="muted">GitHub 令牌（只授权那个私有仓库）</span><input id="sToken" type="password" placeholder="github_pat_..."></div>
-      <div><span class="muted">仓库（用户名/仓库名）</span><input id="sRepo" placeholder="HuangJun722/asset-cockpit-data"></div>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <div><span class="muted">主密码（加密用，忘了无法恢复）</span><input id="sPass" type="password" placeholder="至少 8 位"></div>
-      <div class="row" style="margin-top:8px">
-        <button onclick="connectSync()">保存并连接</button>
-        <button class="ghost" onclick="pullSync(true)">以云端覆盖本机</button>
-        <button class="ghost" onclick="pushSync(true)">以本机覆盖云端</button>
-        <button class="ghost" onclick="hardReload()">刷新页面（绕过缓存）</button>
-      </div>
-    </div>
-    <div class="muted" style="margin-top:6px" id="syncHelp"></div>
-    <div class="muted" style="margin-top:6px">当前页面版本：<b id="pageVer">—</b>（手机和电脑显示的版本要一致；不一致就点上面「刷新页面」）</div>
-  </div>
   <div class="card">
     <h2>数据备份</h2>
     <div class="row">
@@ -403,7 +383,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-18c';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-18d';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
