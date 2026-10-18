@@ -403,7 +403,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-18b';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-18c';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1316,12 +1316,11 @@ document.getElementById('nav').addEventListener('click', e=>{
   if(TAB==='plan') refreshPlanSelects();
 });
 fillSelects(); render(); refreshAssetSelect(); refreshPlanSelects();
-loadSync();
-{ const sr=document.getElementById('sRepo'); if(sr && !sr.value) sr.value=(SYNC&&SYNC.repo)||'HuangJun722/asset-cockpit-data'; }
 const pv=document.getElementById('pageVer'); if(pv) pv.textContent=PAGE_VER;
 tryLoadEnc();                                // 页面自带加密资产文件时，输一次密码就能看
-// 先与云端对齐，再补记定投 / 写快照（否则本机 updatedAt 会被顶到最新，反过来覆盖云端）
-autoSync().then(afterSync).catch(afterSync);
+// 旧方案（令牌+私有仓库自动同步）已彻底停用：不再 loadSync / autoSync，
+// 否则解锁前的那一下保存又会把本机数据传回旧仓库（之前示例数据就是这么漏上去的）
+afterSync();
 function afterSync(){ syncPlans(true); snapshotDaily(); render(); }
 // 上线后：若同目录存在 data/quotes.json（由定时任务每日写入），自动读取
 if(location.protocol.indexOf('http')===0){
