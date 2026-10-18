@@ -68,6 +68,10 @@ ul.tight li{margin-bottom:3px}
   border-radius:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 .banner .bb-main{font-size:14px;line-height:1.5}
 .banner .bb-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.box-tip{margin-top:10px;padding:10px 12px;border:1px solid #b8d4f0;background:#eef5fc;border-radius:8px;font-size:13px;line-height:1.6}
+.box-tip ol{margin:6px 0 4px 18px;padding:0}
+.box-tip li{margin-bottom:4px}
+.box-warn{margin-top:10px;padding:10px 12px;border:1px solid #f0b8b8;background:#fdf0f0;border-radius:8px;font-size:13px;line-height:1.6}
 </style>
 </head>
 <body>
@@ -146,9 +150,10 @@ ul.tight li{margin-bottom:3px}
 
   <div class="card">
     <h2>外部环境（信息层 · 仅供参考，不构成买卖依据）</h2>
+    <div class="muted" style="margin-bottom:8px">还没接入的模块，先占个位置。规划中：每日宏观数据 + 策略研报 AI 摘要（自动抓取、注明出处，只作参考不改你的纪律）。</div>
     <div class="row">
-      <div><span class="muted">市场估值</span><div id="mktVal">—</div></div>
-      <div><span class="muted">研报摘要</span><div id="research">M4 接入（宏观/策略报告 AI 摘要）</div></div>
+      <div><span class="muted">市场估值</span><div class="muted">建设中（全A PE/PB 分位）</div></div>
+      <div><span class="muted">研报摘要</span><div class="muted">建设中（宏观/季度策略，AI 摘要可溯源）</div></div>
     </div>
   </div>
 </section>
@@ -202,16 +207,20 @@ ul.tight li{margin-bottom:3px}
     <div class="row">
       <input type="date" id="tDate">
       <select id="tType">
-        <option value="转入">外部转入</option>
-        <option value="转出">外部转出</option>
-        <option value="收益">收益/分红</option>
-        <option value="费用">费用/损失</option>
-        <option value="转账">平台间转账</option>
-        <option value="校准">余额校准</option>
+        <optgroup label="常用">
+          <option value="转入">外部转入（工资/新钱进来）</option>
+          <option value="转出">外部转出（取走/花掉）</option>
+          <option value="收益">收益/分红</option>
+        </optgroup>
+        <optgroup label="其他">
+          <option value="费用">费用/损失</option>
+          <option value="转账">平台间转账</option>
+          <option value="校准">余额校准</option>
+        </optgroup>
       </select>
     </div>
     <div class="row" style="margin-top:8px">
-      <input id="tAcc" placeholder="账户（如 招商银行）">
+      <input id="tAcc" placeholder="账户（如 中国银行）">
       <input id="tAcc2" placeholder="转入账户（仅转账填）">
       <input id="tAmt" type="number" step="any" placeholder="金额">
     </div>
@@ -221,7 +230,7 @@ ul.tight li{margin-bottom:3px}
     </div>
     <div class="row" style="margin-top:8px">
       <button onclick="addTx()">保存</button>
-      <label class="muted" style="flex:2"><input type="checkbox" id="tSync" style="width:auto"> 同步调整该资产数量（买入/卖出时勾上）</label>
+      <label class="muted" style="flex:2"><input type="checkbox" id="tSync" checked style="width:auto"> 同步调整该资产数量（默认勾上，买/卖/收收益都靠它自动改份额）</label>
       <button class="ghost" onclick="undoTx()">撤销上一笔</button>
     </div>
     <div class="muted">说明：转账不算资金进出，不影响收益归因；校准会直接把该资产数量改成你填的金额。每条流水带日期，漏记补录时填真实日期，否则收益率算不准。</div>
@@ -349,8 +358,19 @@ ul.tight li{margin-bottom:3px}
       </div>
     </div>
     <div style="margin-top:6px"><label class="muted"><input type="checkbox" id="eRemember"> 记住这台设备的密码（下次自动打开）</label></div>
-    <div class="muted" style="margin-top:6px">
-      怎么用：电脑上记完账 → 点「生成加密文件」→ 把下载的文件交给 AI 提交（或直接传到手机）→ 手机打开页面输入主密码即可。
+    <div class="box-tip">
+      <b>手机怎么拿到数据（不经过 AI，自己就能闭环）</b>
+      <ol class="tight">
+        <li><b>电脑</b>：点上面「生成加密文件」→ 下载得到 <code>portfolio.encrypted.json</code></li>
+        <li><b>发到手机</b>：微信文件传输助手 / QQ / 网盘，任选，把文件发到自己手机</li>
+        <li><b>手机</b>：打开本页面 → 设置 → 这里点「从加密文件载入」→ 选刚收到的文件 → 输同一个主密码</li>
+      </ol>
+      <div class="muted">这条路完全离线、不经任何服务器。如果让 AI 帮你提交到线上，手机则会自动更新（不用手动传文件）。</div>
+    </div>
+    <div class="box-warn">
+      <b>⚠ 主密码忘了，加密文件就是永远解不开的乱码，没有找回机制。</b><br>
+      保险做法：设置 → 数据备份 →「导出 JSON」→ 把明文文件存到网盘或 U 盘。
+      平时更新数据后重做一次导出，就永远有兜底。
     </div>
   </div>
   <div class="card">
@@ -383,7 +403,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-18e';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-18f';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -609,25 +629,37 @@ function renderAcc(c){
 }
 function renderTrend(){
   const sn=S.snapshots, box=document.getElementById('trend');
-  if(sn.length<2){ box.innerHTML='<div class="muted">记录两天以上才会出现走势曲线（每天首次打开自动记一次快照）。</div>';
+  if(sn.length<2){ box.innerHTML='<div class="muted">记录两天以上才会出现走势曲线（<b>每天首次打开自动记一次快照</b>；中间没打开的日子没有历史净值可补，所以开得越勤曲线越完整）。</div>';
     document.getElementById('twr').textContent=''; return; }
   const vals=sn.map(s=>Number(s.net)||0), w=600, hh=90;
   const mx=Math.max.apply(null,vals), mn=Math.min.apply(null,vals), rng=(mx-mn)||1;
   const pts=vals.map((v,i)=>`${(i/(vals.length-1)*w).toFixed(1)},${(hh-(v-mn)/rng*hh).toFixed(1)}`).join(' ');
+  // 最大间隔：超过 7 天说明那段时间没打开过，曲线在这里断开，不能假装连续
+  let gapDays=0, gapAt='';
+  for(let i=1;i<sn.length;i++){
+    const d=Math.round((s2d(sn[i].date)-s2d(sn[i-1].date))/86400000);
+    if(d>gapDays){ gapDays=d; gapAt=sn[i-1].date+' → '+sn[i].date; }
+  }
+  const gapTip = gapDays>7 ? '<div class="tag warn" style="margin-top:4px">有 '+gapDays+' 天没记录（'+gapAt+'），这段没有历史净值、曲线在这里断开；想补也补不了，勤打开就行</div>' : '';
   box.innerHTML = `<svg viewBox="0 0 ${w} ${hh}" style="width:100%;height:90px">
     <polyline points="${pts}" fill="none" stroke="#4472C4" stroke-width="2"/></svg>
-    <div class="muted">${sn[0].date} → ${sn[sn.length-1].date}（${sn.length} 个快照）</div>`;
+    <div class="muted">${sn[0].date} → ${sn[sn.length-1].date}（${sn.length} 个快照）</div>${gapTip}`;
   const t=twr(); document.getElementById('twr').textContent = '累计时间加权收益率：'+((t==null)?'—':((t>=0?'+':'')+pct(t,2)));
 }
 function renderHealth(c){
   const days = S.meta.lastReconcile ? Math.round((Date.now()-new Date(S.meta.lastReconcile))/86400000) : null;
-  let noCode=0; S.holdings.filter(h=>h.cat!=='负债'&&!h.code).forEach(h=>noCode+=valueOf(h));
-  const h=[
+  // 只统计“需要代码才能自动抓价”的资产：现金/存款类没有代码也永远不需要，别天天拿它烦人
+  let noCode=0; S.holdings.filter(h=>h.cat!=='负债' && h.cat!=='现金存款' && !h.code).forEach(h=>noCode+=valueOf(h));
+  const hasDebt=S.holdings.some(h=>h.cat==='负债');
+  const rows=[
     `<div>上次对账：<b>${S.meta.lastReconcile||'从未'}</b>${days==null?'':('（'+days+' 天前）')} ${days!=null&&days>7?'<span class="tag warn">该对账了</span>':''}</div>`,
-    `<div>行情日期：<b>${S.meta.quoteDate||'无'}</b></div>`,
-    `<div>需手动维护价格的资产：<b>${money(noCode)}</b>（占总资产 ${pct(c.assets?noCode/c.assets:0,0)}，填了代码就能自动抓）</div>`
-  ].join('');
-  document.getElementById('health').innerHTML = h;
+    `<div>行情日期：<b>${S.meta.quoteDate||'无'}</b>${S.meta.quoteDate&&S.meta.quoteDate<today()?' <span class="muted">（自动任务每晚 18:30 更新，看的是最近一个收盘价）</span>':''}</div>`,
+    `<div>需手动维护价格的资产：<b>${noCode?money(noCode):'无'}</b>${noCode?('（占总资产 '+pct(c.assets?noCode/c.assets:0,0)+'，填了代码就能自动抓价）'):'（都有代码，自动抓价）'}</div>`,
+  ];
+  if(!hasDebt && (S.holdings||[]).length){
+    rows.push('<div class="muted">没录负债。有房贷/车贷/欠款的话，去「持仓 → 新增」加一条大类选「负债」——净资产会真实很多。</div>');
+  }
+  document.getElementById('health').innerHTML = rows.join('');
 }
 function renderHoldings(){
   const t=document.getElementById('holdTable');
@@ -770,8 +802,10 @@ function addTx(){
   }
   if(type==='校准' && h){ tx.prevQty=h.qty; h.qty=amt; tx.newQty=amt; }
   S.transactions.push(tx); save(); render(); flash('已记录');
-  ['tAmt','tNote','tAcc','tAcc2'].forEach(i=>document.getElementById(i).value='');
-  document.getElementById('tSync').checked=false;
+  ['tAmt','tNote','tAcc2'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('tSync').checked=true;            // 保持默认勾选，连着记多笔不用每次点
+  try{ localStorage.setItem('amp_last_acc', acc); }catch(e){}  // 记住常用账户，下次自动填
+  refreshAssetSelect();
 }
 function undoTx(){
   const t=S.transactions[S.transactions.length-1];
@@ -873,7 +907,10 @@ function syncPlans(quiet){
     if(pend.length>24 && !quiet) flash('「'+(p.name||'定投')+'」有 '+pend.length+' 期未记，本次只补最近 24 期');
     run.forEach(d=>{ runPlanOnce(p,d); n++; });
   });
-  if(n){ save(); render(); flash('已自动补记 '+n+' 期定投（见「记账 → 流水」，可撤销）'); }
+  if(n){
+    save(); render();
+    flash('已补记 '+n+' 期定投（流水可撤销）。份额按当前净值折算——补的是过去日期的话，和银行实际扣款份额可能有差，建议打开流水核对');
+  }
   else if(!quiet){ flash('没有到期的定投'); }
   const st=document.getElementById('planSyncState');
   if(st) st.textContent = n? ('本次补记 '+n+' 期，已写入流水与持仓') : '所有到期期次都已入账';
@@ -1296,6 +1333,13 @@ document.getElementById('nav').addEventListener('click', e=>{
   if(TAB==='plan') refreshPlanSelects();
 });
 fillSelects(); render(); refreshAssetSelect(); refreshPlanSelects();
+// 记账页预填：今天日期 + 上次用过的账户（少两步操作）
+{
+  const td=document.getElementById('tDate'); if(td && !td.value) td.value=today();
+  const la=document.getElementById('tAcc');
+  if(la && !la.value){ try{ la.value=localStorage.getItem('amp_last_acc')||''; }catch(e){} }
+  const ts=document.getElementById('tSync'); if(ts) ts.checked=true;
+}
 const pv=document.getElementById('pageVer'); if(pv) pv.textContent=PAGE_VER;
 tryLoadEnc();                                // 页面自带加密资产文件时，输一次密码就能看
 // 旧方案（令牌+私有仓库自动同步）已彻底停用：不再 loadSync / autoSync，
