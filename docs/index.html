@@ -403,7 +403,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-18a';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-18b';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1044,6 +1044,8 @@ async function encPack(pass, obj){
   return {v:1, alg:'AES-GCM/PBKDF2', salt:b64e(salt), iv:b64e(iv), data:b64e(new Uint8Array(ct))};
 }
 async function decPack(pass, p){
+  if(!p || typeof p!=='object' || !p.salt || !p.iv || !p.data)
+    throw new Error('加密文件不在手上（页面刚打开时数据还没准备好，再点一次即可）');
   const key=await deriveKey(pass, b64d(p.salt));
   const pt=await crypto.subtle.decrypt({name:'AES-GCM', iv:b64d(p.iv)}, key, b64d(p.data));
   return JSON.parse(new TextDecoder().decode(pt));
@@ -1369,12 +1371,18 @@ async function loadEncFile(inp){
   r.readAsText(f);
 }
 async function tryLoadEnc(){
-  let pack=null;
+  let pack=null, why='';
   try{
-    const r=await fetch(ENC_URL+'?t='+Date.now());
-    if(!r.ok) return;
-    pack=await r.json();
-  }catch(e){ return; }
+    const r=await fetch(ENC_URL+'?t='+Date.now(), {cache:'no-store'});
+    if(!r.ok){ why='HTTP '+r.status; }
+    else { pack=await r.json(); if(!pack || !pack.salt) why='文件内容不完整'; }
+  }catch(e){ why=(e&&e.message)||'网络错误'; }
+  if(!pack){
+    // 读不到加密文件：不打扰首页，但在设置页留一句人话，别让用户瞎点
+    const st=document.getElementById('encState');
+    if(st) st.innerHTML='<span class="tag act">读不到加密资产文件</span> <span class="muted">'+esc(why)+'，打开页面时点「解锁」会自动重试</span>';
+    return;
+  }
   const saved=localStorage.getItem(PASS_KEY);
   if(saved){
     try{ const n=await applyEncPack(pack, saved); flash('已用记住的密码载入 '+n+' 项持仓'); return; }
@@ -1412,7 +1420,14 @@ async function unlockEnc(){
 }
 async function unlockEncWith(p, fromTop){
   try{
-    const n=await applyEncPack(window.__encPack, p);
+    // 兜底：页面刚打开 / 网络慢 / 内存里的 pack 还没到位 → 当场重新拉一次，不再报看不懂的错
+    let pack=window.__encPack;
+    if(!pack || !pack.salt){
+      const r=await fetch(ENC_URL+'?t='+Date.now(), {cache:'no-store'});
+      if(!r.ok) throw new Error('读不到加密文件（HTTP '+r.status+'），稍等再试');
+      pack=await r.json(); window.__encPack=pack;
+    }
+    const n=await applyEncPack(pack, p);
     if(confirm('记住这台设备的密码，下次打开自动载入？')){
       localStorage.setItem(PASS_KEY,p);
     }
@@ -1425,7 +1440,7 @@ async function unlockEncWith(p, fromTop){
     if(st) st.innerHTML='<span class="tag ok">已载入</span> '+n+' 项持仓';
     flash('已载入 '+n+' 项真实持仓');
   }catch(e){
-    flash(/operation|decrypt/i.test(e.message)?'主密码不对，再试一次':'载入失败：'+e.message);
+    flash(/operation|decrypt|bad decrypt/i.test(e.message)?'主密码不对，再试一次':'载入失败：'+e.message);
   }
 }
 // 手机有时候会打开缓存里的旧页面，这个按钮强制拉最新版
