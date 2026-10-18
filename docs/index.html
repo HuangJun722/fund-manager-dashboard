@@ -64,6 +64,10 @@ ul.tight li{margin-bottom:3px}
 .flash{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f3864;color:#fff;
   padding:9px 16px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
 .flash.show{opacity:1}
+.banner{max-width:1080px;margin:10px auto 0;padding:12px 16px;border:1px solid #e6c877;background:#fdf6e0;
+  border-radius:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.banner .bb-main{font-size:14px;line-height:1.5}
+.banner .bb-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -80,6 +84,18 @@ ul.tight li{margin-bottom:3px}
   <button data-tab="recon">对账</button>
   <button data-tab="set">设置</button>
 </nav>
+
+<!-- 加密资产文件解锁条：发现 data/portfolio.encrypted.json 时出现，所有页签可见 -->
+<div id="encBanner" class="banner hidden">
+  <div class="bb-main">
+    <b>发现你的加密资产文件</b>
+    <span class="muted" id="encBannerSub">输入主密码即可载入真实持仓</span>
+  </div>
+  <div class="bb-row">
+    <input id="ePassTop" type="password" placeholder="主密码（至少 8 位）" style="flex:1;min-width:140px">
+    <button onclick="unlockEncTop()">解锁</button>
+  </div>
+</div>
 
 <main>
 <!-- ============ 工作台 ============ -->
@@ -387,7 +403,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-11j';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-18a';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
@@ -1333,7 +1349,11 @@ async function applyEncPack(pack, pass){
   const obj=await decPack(pass, pack);
   const keep=S.quotes;
   S=normalize(obj); S.quotes=Object.assign({}, keep, S.quotes||{}); S.meta.demo=false;
-  save(); render();
+  save(true);                                  // noSync：不再走旧的自动上传链路
+  // 旧方案（令牌+私有仓库）已废弃：解锁成功即视为迁移完成，清掉残留配置防止死代码作恶
+  SYNC={token:'',repo:'',pass:'',at:0,err:''};
+  try{ localStorage.removeItem('amp_v1_sync'); }catch(e){}
+  render();
   return S.holdings.length;
 }
 async function loadEncFile(inp){
@@ -1355,27 +1375,58 @@ async function tryLoadEnc(){
     if(!r.ok) return;
     pack=await r.json();
   }catch(e){ return; }
-  const st=document.getElementById('encState');
   const saved=localStorage.getItem(PASS_KEY);
   if(saved){
     try{ const n=await applyEncPack(pack, saved); flash('已用记住的密码载入 '+n+' 项持仓'); return; }
     catch(e){ localStorage.removeItem(PASS_KEY); }
   }
-  if(!st) return;
-  const n=(S.holdings||[]).length;
-  st.innerHTML = '<span class="tag info">发现加密资产文件</span> ' +
-    '<button onclick="unlockEnc()">输入主密码载入</button>' + (n?('<span class="muted">（本机现有 '+n+' 项）</span>'):'');
   window.__encPack = pack;
+  // 顶部全局解锁条（不藏在设置页，手机上一打开就能看到）
+  const bn=document.getElementById('encBanner');
+  if(bn){
+    const n=(S.holdings||[]).length;
+    const sub=document.getElementById('encBannerSub');
+    if(sub) sub.innerHTML = n
+      ? ('这台设备现在存着 '+n+' 项<b>非真实数据</b>（示例或旧数据），输对主密码后会换成你的真实持仓')
+      : '输入主密码即可载入真实持仓';
+    bn.classList.remove('hidden');
+  }
+  // 设置页里的入口也保留一份
+  const st=document.getElementById('encState');
+  if(st){
+    const n=(S.holdings||[]).length;
+    st.innerHTML = '<span class="tag info">发现加密资产文件</span> ' +
+      '<button onclick="unlockEnc()">输入主密码载入</button>' + (n?('<span class="muted">（本机现有 '+n+' 项）</span>'):'');
+  }
+}
+// 顶部解锁条：输密码 → 载入 → 收起
+async function unlockEncTop(){
+  const p=(document.getElementById('ePassTop').value||'').trim();
+  if(!p){ flash('先填主密码'); return; }
+  await unlockEncWith(p, true);
 }
 async function unlockEnc(){
   const p=encPassInput() || prompt('输入主密码');
   if(!p) return;
+  await unlockEncWith(p, false);
+}
+async function unlockEncWith(p, fromTop){
   try{
     const n=await applyEncPack(window.__encPack, p);
-    if(confirm('记住这台设备的密码，下次自动打开？')) localStorage.setItem(PASS_KEY,p);
-    const st=document.getElementById('encState'); if(st) st.innerHTML='<span class="tag ok">已载入</span> '+n+' 项持仓';
-    flash('已载入 '+n+' 项持仓');
-  }catch(e){ flash(/operation|decrypt/i.test(e.message)?'主密码不对':'载入失败：'+e.message); }
+    if(confirm('记住这台设备的密码，下次打开自动载入？')){
+      localStorage.setItem(PASS_KEY,p);
+    }
+    if(fromTop){
+      const bn=document.getElementById('encBanner');
+      if(bn) bn.classList.add('hidden');
+      document.getElementById('ePassTop').value='';
+    }
+    const st=document.getElementById('encState');
+    if(st) st.innerHTML='<span class="tag ok">已载入</span> '+n+' 项持仓';
+    flash('已载入 '+n+' 项真实持仓');
+  }catch(e){
+    flash(/operation|decrypt/i.test(e.message)?'主密码不对，再试一次':'载入失败：'+e.message);
+  }
 }
 // 手机有时候会打开缓存里的旧页面，这个按钮强制拉最新版
 function hardReload(){ location.replace(location.pathname+'?v='+Date.now()); }
