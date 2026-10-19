@@ -372,6 +372,12 @@ ul.tight li{margin-bottom:3px}
     <div class="muted" id="styleTargetSum"></div>
   </div>
   <div class="card">
+    <h2>行业目标（基金ETF 内部）</h2>
+    <div class="muted" style="margin-bottom:8px">与风格目标同一套机制：实际占比 vs 你设的目标，越界进首页「需要处理」和日历页触发条件。主标签口径，不做成分穿透。</div>
+    <div id="sectorTargetBox"></div>
+    <div class="muted" id="sectorTargetSum"></div>
+  </div>
+  <div class="card">
     <h2>系统参数</h2>
     <div class="row">
       <div><span class="muted">比较基准</span><input id="pBench"></div>
@@ -456,10 +462,11 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-19d';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-19e';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [], pending: [],
   styleTargets: {'宽基':0.40,'红利':0.15,'成长':0.10,'债':0,'现金':0,'行业主题':0.35},
+  sectorTargets: {'金融':0.25,'科技':0.20,'制造':0.10,'宽基/非行业':0.35,'个股':0.05},
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
   params: {benchmark:'沪深300', benchChange:0, drawdown:5, devAbs:5, devRel:50, market:'中性', fx:{CNY:1, USD:7.10, HKD:0.92}},
   meta: {lastReconcile:'', quoteDate:'', lastSnapshot:'', plan:'稳健型（权益55%）', planBase:'稳健型（权益55%）', planDesc:''}
@@ -479,6 +486,7 @@ function load(){
     if(!s.quotes) s.quotes = {};
     if(!s.targets) s.targets = Object.assign({}, DEFAULTS.targets);
     s.styleTargets = Object.assign({}, DEFAULTS.styleTargets, s.styleTargets || {});
+    s.sectorTargets = Object.assign({}, DEFAULTS.sectorTargets, s.sectorTargets || {});
     return s;
   }catch(e){ return JSON.parse(JSON.stringify(DEFAULTS)); }
 }
@@ -604,17 +612,16 @@ function concentration(c){
 function updateHdsub(){
   const el=document.getElementById('hdsub'); if(!el) return;
   const n=(S.holdings||[]).length;
+  const encUp = (typeof window.__encPack!=='undefined' && window.__encPack);
   let tail;
-  if(!SYNC || !SYNC.token) tail = '云同步未配置 · 数据只在这台设备';
-  else if(SYNC.err)        tail = '⚠ 云同步失败：'+SYNC.err;
-  else if(SYNC.at)         tail = '云同步已连接 · 上次 '+new Date(SYNC.at).toLocaleString('zh-CN');
-  else                     tail = '云同步已连接 · 尚未同步';
+  if(encUp) tail = '端到端加密 · 主密码只存本机';
+  else tail = '本地单机模式 · 数据保存在此浏览器';
   el.textContent = (n ? ('共 '+n+' 项持仓 · ') : '') + tail;
 }
 function render(){
   const c = compute();
   renderStatus(c); renderKPI(c); renderActions(c); renderCat(c); renderStyle(c); renderSector(c); renderAcc(c);
-  renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderStyleTargets();
+  renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderStyleTargets(); renderSectorTargets();
   renderPlans(); renderPending(); renderCal(); renderTimeline('home'); renderTimeline('all');
   document.getElementById('mktVal').textContent = S.params.market || '—';
   updateHdsub();
@@ -637,7 +644,7 @@ function renderKPI(c){
     {label:'净资产', value:money(c.net), hint:'总资产 '+money(c.assets)+' − 负债 '+money(c.debt)},
     {label:'记账以来收益', value:'<span class="'+gainCls+'">'+gainTxt+'</span>', hint:'<span class="'+twrCls+'">收益率 '+twrTxt+'</span><span class="'+cmpCls+'">'+cmpTxt+'</span>'},
     {label:'回撤', value:'<span class="'+ddCls+'">'+ddTxt+'</span>', hint:'阈值 '+(S.params.drawdown||5)+'%'+(g?(' · 起始 '+g.firstDate):'')},
-    {label:'待处理', value:String(deviation(c).length), hint:'偏离/集中度需要关注项'}
+    {label:'待处理', value:String(buildActions(c).length), hint:'偏离/集中度/待确认等需要关注项合计'}
   ];
   document.getElementById('kpis').innerHTML = kpis.map(k=>
     `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="hint">${k.hint}</div></div>`).join('');
@@ -652,19 +659,12 @@ function dataIssues(){
   });
   return bad;
 }
-function renderStatus(c){
-  const title=document.getElementById('statusTitle'), body=document.getElementById('statusBody'),
-        trust=document.getElementById('statusTrust'), card=document.getElementById('statusCard');
+/* 三态「需要处理」项：首页状态卡与 KPI「待处理」共用同一口径 */
+function buildActions(c){
   const pend=pendingList(), devs=deviation(c).filter(x=>x.level==='红线'||x.level==='行动');
   const conc=concentration(c).list, issues=dataIssues();
   const reconDays = S.meta.lastReconcile ? Math.round((Date.now()-new Date(S.meta.lastReconcile))/86400000) : null;
-  // 数据可信度副标题：行情日期 / 上次对账 / 待确认数 / 快照数
-  trust.innerHTML =
-    '行情日期：<b>'+esc(S.meta.quoteDate||'无')+'</b><br>'+
-    '上次对账：<b>'+esc(S.meta.lastReconcile||'从未')+'</b>'+(reconDays!=null?('（'+reconDays+' 天前）'):'')+'<br>'+
-    '待确认定投：<b>'+pend.length+'</b> 期<br>'+
-    '已记录快照：<b>'+S.snapshots.length+'</b> 个';
-  const acts=[];   // {tag, cls, text, btnLabel, onclick}
+  const acts=[];
   if(pend.length) acts.push({cls:'act', tag:'待确认',
     text:'有 <b>'+pend.length+'</b> 期定投到期未核对（约 '+money(pend.reduce((a,x)=>a+x.amount,0))+'），核对后才入账',
     btn:'去确认', fn:'goPlan()'});
@@ -686,8 +686,29 @@ function renderStatus(c){
       text:'基金ETF 内「'+esc(r.key)+'」'+dir+' '+pct(Math.abs(r.d),1)+'（实际 '+pct(r.actual,1)+' / 目标 '+pct(r.target,0)+'），约 '+money(Math.abs(r.amount)),
       btn:'去调整目标', fn:"switchAlloc('style')"});
   });
+  const sec=sectorDeviation(c);
+  sec.breaching.slice(0,2).forEach(r=>{
+    const dir=r.d>0?'超配':'低配';
+    acts.push({cls:r.level==='红线'?'act':'warn', tag:'行业'+r.level,
+      text:'基金ETF 内行业「'+esc(r.key)+'」'+dir+' '+pct(Math.abs(r.d),1)+'（实际 '+pct(r.actual,1)+' / 目标 '+pct(r.target,0)+'），约 '+money(Math.abs(r.amount)),
+      btn:'去调整目标', fn:"switchAlloc('sector')"});
+  });
   issues.slice(0,2).forEach(x=>acts.push({cls:'act', tag:'数据异常',
     text:esc(x)+'，账目可能失真', btn:'去检查', fn:'goHold()'}));
+  return acts;
+}
+function renderStatus(c){
+  const title=document.getElementById('statusTitle'), body=document.getElementById('statusBody'),
+        trust=document.getElementById('statusTrust'), card=document.getElementById('statusCard');
+  const pend=pendingList();
+  const reconDays = S.meta.lastReconcile ? Math.round((Date.now()-new Date(S.meta.lastReconcile))/86400000) : null;
+  // 数据可信度副标题：行情日期 / 上次对账 / 待确认数 / 快照数
+  trust.innerHTML =
+    '行情日期：<b>'+esc(S.meta.quoteDate||'无')+'</b><br>'+
+    '上次对账：<b>'+esc(S.meta.lastReconcile||'从未')+'</b>'+(reconDays!=null?('（'+reconDays+' 天前）'):'')+'<br>'+
+    '待确认定投：<b>'+pend.length+'</b> 期<br>'+
+    '已记录快照：<b>'+S.snapshots.length+'</b> 个';
+  const acts=buildActions(c);
   if(acts.length){
     title.textContent='现在的状态：需要处理';
     body.innerHTML='<ul class="tight">'+acts.map(a=>
@@ -854,6 +875,8 @@ function triggerRules(){
       const target=Number(S.styleTargets[k])||0;
       if(!rules.some(r=>r.key===k)) gen('风格', k, (b.byStyle[k]||0)/b.total, target, b.total);
     });
+    const sec=sectorDeviation(c);
+    sec.rows.forEach(r=>{ if(r.target>0 || r.actual>0.01) gen('行业', r.key, r.actual, r.target, b.total); });
   }
   return rules.filter(r=>r.hit).concat(rules.filter(r=>!r.hit));   // 已触发的排前面
 }
@@ -1029,15 +1052,21 @@ function renderSector(c){
   const box=document.getElementById('sectorTable'); if(!box) return;
   const b=etfBreakdown(c);
   if(b.total<=0){ box.innerHTML='<div class="muted">还没有基金ETF 持仓</div>'; return; }
-  let h='<table><tr><th>行业</th><th class="num">市值</th><th class="num">占比</th><th style="width:32%"></th></tr>';
+  const sec=sectorDeviation(c);
+  const rowOf=k=>sec.rows.find(r=>r.key===k);
+  let h='<table><tr><th>行业</th><th class="num">市值</th><th class="num">实际/目标</th><th style="width:32%">占比</th></tr>';
   Object.keys(b.bySector).sort((x,y)=>b.bySector[y]-b.bySector[x]).forEach(k=>{
-    const v=b.bySector[k], a=v/b.total;
-    h+=`<tr><td>${esc(k)}${a>0.35?' <span class="tag act">超 35%</span>':''}</td>
-      <td class="num">${money(v)}</td><td class="num">${pct(a,1)}</td>
-      <td><div class="bar"><span style="width:${Math.min(Math.round(a*100),100)}%"></span></div></td></tr>`;
+    const v=b.bySector[k], a=v/b.total, r=rowOf(k);
+    const tg=r?r.target:0, lv=r?r.level:null;
+    const cls=lv==='红线'?'act':(lv==='行动'?'warn':'');
+    h+=`<tr><td>${esc(k)}${a>0.35?' <span class="tag act">超 35%</span>':''}${lv?(' <span class="tag '+cls+'">'+lv+'</span>'):''}</td>
+      <td class="num">${money(v)}</td><td class="num">${pct(a,1)} / ${pct(tg,0)}</td>
+      <td><div class="bar"><span style="width:${Math.min(Math.round(a*100),100)}%"></span></div>
+      ${tg>0?('<div class="muted">目标线 '+Math.round(tg*100)+'%</div>'):''}</td></tr>`;
   });
   h+='</table>';
-  h+=`<div class="muted" style="margin-top:6px">主标签口径：一只基金只按它的<b>主标签</b>归一个行业，不做成分穿透——宁可简单可校验，也不复杂而错。</div>`;
+  if(sec.breaching.length) h+=`<div class="muted" style="margin-top:6px">越界项已同步进首页「需要处理」和日历页触发条件。</div>`;
+  h+=`<div class="muted" style="margin-top:6px">主标签口径：一只基金只按它的<b>主标签</b>归一个行业，不做成分穿透——宁可简单可校验，也不复杂而错。目标可在「设置 → 行业目标」改。</div>`;
   box.innerHTML=h;
 }
 function renderAcc(c){
@@ -1198,6 +1227,20 @@ function renderStyleTargets(){
 function setStyleTarget(k, v){
   S.styleTargets[k]=(Number(v)||0)/100;
   save(); renderStyleTargets(); const c=compute(); renderStyle(c); renderStatus(c); renderKPI(c); flash('风格目标已更新');
+}
+function renderSectorTargets(){
+  const box=document.getElementById('sectorTargetBox'); if(!box) return;
+  let h='<table><tr><th>行业</th><th class="num">目标比例</th></tr>';
+  Object.keys(S.sectorTargets).forEach(k=>{
+    h+=`<tr><td>${esc(k)}</td><td class="num"><input type="number" step="any" value="${(Number(S.sectorTargets[k])||0)*100}" onchange="setSectorTarget('${k}',this.value)" style="width:90px"> %</td></tr>`;
+  });
+  h+='</table>'; box.innerHTML=h;
+  const sum=Object.keys(S.sectorTargets).reduce((a,k)=>a+(Number(S.sectorTargets[k])||0),0);
+  document.getElementById('sectorTargetSum').textContent='当前合计 '+pct(sum,0)+'（不等于 100% 也能用，系统自动归一化）';
+}
+function setSectorTarget(k, v){
+  S.sectorTargets[k]=(Number(v)||0)/100;
+  save(); renderSectorTargets(); const c=compute(); renderSector(c); renderStatus(c); renderKPI(c); flash('行业目标已更新');
 }
 
 /* ============ 操作 ============ */
@@ -1389,6 +1432,27 @@ function settlePend(id, kind){   // kind: 'skip'=银行没扣 / 'missed'=失误�
   if(p){ p[field]=p[field]||[]; p[field].push(it.date); }
   save(); render(); flash(kind==='missed'?'已标记未执行':'已跳过本期，不动账');
 }
+// 行业偏离：与风格同一套口径，只在基金ETF 内部比较 实际 vs 用户自设目标
+function sectorDeviation(c){
+  const b=etfBreakdown(c);
+  if(b.total<=0) return {total:0, rows:[], breaching:[]};
+  const devAbs=(Number(S.params.devAbs)||5)/100, devRel=(Number(S.params.devRel)||50)/100;
+  const keys=Object.keys(S.sectorTargets||{});
+  Object.keys(b.bySector).forEach(k=>{ if(!keys.includes(k)) keys.push(k); });
+  const rows=[], breaching=[];
+  keys.forEach(k=>{
+    const actual=(b.bySector[k]||0)/b.total, target=Number(S.sectorTargets[k])||0;
+    const d=actual-target, ad=Math.abs(d), rd=target>0?ad/target:(actual>0?1:0);
+    let level=null;
+    if(ad>=0.10) level='红线';
+    else if(ad>=devAbs || rd>=devRel) level='行动';
+    else if(ad>=devAbs*0.6 || rd>=devRel*0.4) level='提醒';
+    rows.push({key:k, actual:actual, target:target, d:d, level:level, amount:d*b.total, value:(b.bySector[k]||0)});
+    if(level==='红线'||level==='行动') breaching.push(rows[rows.length-1]);
+  });
+  rows.sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+  return {total:b.total, rows:rows, breaching:breaching};
+}
 function renderPending(){
   const box=document.getElementById('pendBox'); if(!box) return;
   const list=pendingList();
@@ -1560,6 +1624,7 @@ function normalize(s){
   if(!s.quotes) s.quotes={};
   if(!s.targets) s.targets=Object.assign({}, DEFAULTS.targets);
   s.styleTargets = Object.assign({}, DEFAULTS.styleTargets, s.styleTargets||{});
+  s.sectorTargets = Object.assign({}, DEFAULTS.sectorTargets, s.sectorTargets||{});
   return s;
 }
 async function deriveKey(pass, salt){
