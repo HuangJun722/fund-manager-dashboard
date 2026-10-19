@@ -25,6 +25,11 @@ nav button{border:0;background:none;padding:11px 12px;font-size:14px;color:var(-
 nav button.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
 main{padding:14px;max-width:980px;margin:0 auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+details.card{cursor:pointer}
+details.card>summary{font-weight:600;user-select:none;list-style:revert}
+details.card[open]>summary{margin-bottom:2px}
+#moreHome .card{background:transparent;border:none;border-radius:0;padding:0 0 4px;margin:12px 0 0}
+#moreHome .split{margin-top:12px}
 .card h2{margin:0 0 10px;font-size:15px}
 .grid{display:grid;gap:12px}
 .kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
@@ -127,22 +132,6 @@ ul.tight li{margin-bottom:3px}
   </div>
   <div class="grid kpis" id="kpis"></div>
 
-  <div class="card hidden" id="actionCard">
-    <h2>偏离明细 & 下一步动作</h2>
-    <div id="actions"></div>
-  </div>
-
-  <div class="card hidden" id="planCard">
-    <h2>定投（到期先待确认，核对后才入账）</h2>
-    <div id="planHome"></div>
-  </div>
-
-  <div class="card" id="timelineCard">
-    <h2>资产时间线（最近）</h2>
-    <div id="timelineHome"></div>
-    <div class="muted" style="margin-top:6px"><a href="#" onclick="goLedger('tlAll');return false;">查看完整时间线（记账页）→</a></div>
-  </div>
-
   <div class="split">
     <div class="card">
       <h2>钱押在哪</h2>
@@ -162,26 +151,29 @@ ul.tight li{margin-bottom:3px}
     </div>
   </div>
 
-  <div class="split">
-    <div class="card">
-      <h2>净资产走势</h2>
-      <div id="trend"></div>
-      <div class="muted" id="twr"></div>
+  <details class="card" id="moreHome">
+    <summary>更多：定投摘要 · 资产时间线 · 净资产走势 · 集中度与数据健康</summary>
+    <div class="card" id="planCard">
+      <h2>定投（到期先待确认，核对后才入账）</h2>
+      <div id="planHome"></div>
     </div>
-    <div class="card">
-      <h2>集中度 & 数据健康</h2>
-      <div id="health"></div>
+    <div class="card" id="timelineCard">
+      <h2>资产时间线（最近）</h2>
+      <div id="timelineHome"></div>
+      <div class="muted" style="margin-top:6px"><a href="#" onclick="goLedger('tlAll');return false;">查看完整时间线（记账页）→</a></div>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>外部环境（信息层 · 仅供参考，不构成买卖依据）</h2>
-    <div class="muted" style="margin-bottom:8px">还没接入的模块，先占个位置。规划中：每日宏观数据 + 策略研报 AI 摘要（自动抓取、注明出处，只作参考不改你的纪律）。</div>
-    <div class="row">
-      <div><span class="muted">市场估值</span><div class="muted">建设中（全A PE/PB 分位）</div></div>
-      <div><span class="muted">研报摘要</span><div class="muted">建设中（宏观/季度策略，AI 摘要可溯源）</div></div>
+    <div class="split">
+      <div class="card">
+        <h2>净资产走势</h2>
+        <div id="trend"></div>
+        <div class="muted" id="twr"></div>
+      </div>
+      <div class="card">
+        <h2>集中度 & 数据健康</h2>
+        <div id="health"></div>
+      </div>
     </div>
-  </div>
+  </details>
 </section>
 
 <!-- ============ 持仓 ============ -->
@@ -489,7 +481,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-19f';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-19g';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [], pending: [],
   styleTargets: {'宽基':0.40,'红利':0.15,'成长':0.10,'债':0,'现金':0,'行业主题':0.35},
@@ -648,7 +640,7 @@ function updateHdsub(){
 }
 function render(){
   const c = compute();
-  renderStatus(c); renderKPI(c); renderActions(c); renderCat(c); renderStyle(c); renderSector(c); renderAcc(c);
+  renderStatus(c); renderKPI(c); renderCat(c); renderStyle(c); renderSector(c); renderAcc(c);
   renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderStyleTargets(); renderSectorTargets();
   renderPlans(); renderPending(); renderCal(); renderTimeline('home'); renderTimeline('all');
   document.getElementById('mktVal').textContent = S.params.market || '—';
@@ -698,24 +690,24 @@ function buildActions(c){
     btn:'去确认', fn:'goPlan()'});
   devs.slice(0,3).forEach(d=>{
     const dir=d.d>0?'超配':'低配';
+    const group=S.holdings.filter(x=>x.cat===d.cat && x.cat!=='负债')
+      .sort((a,b)=>valueOf(b)-valueOf(a)).slice(0,2).map(x=>x.name).join(' / ');
     acts.push({cls:d.level==='红线'?'act':'warn', tag:d.level,
-      text:esc(d.cat)+' '+dir+' '+pct(Math.abs(d.d),1)+'（实际 '+pct(d.actual,1)+' / 目标 '+pct(d.target,0)+'），约 '+money(Math.abs(d.amount)),
-      btn:'怎么做', fn:'scrollToCard(\'actionCard\')'});
+      text:esc(d.cat)+' '+dir+' '+pct(Math.abs(d.d),1)+'（实际 '+pct(d.actual,1)+' / 目标 '+pct(d.target,0)+'），约 '+money(Math.abs(d.amount))+(group?('，优先调整 '+esc(group)):'')});
   });
-  conc.slice(0,2).forEach(x=>acts.push({cls:'act', tag:'红线',
-    text:x.type+'「'+esc(x.name)+'」占 '+pct(x.share,1)+'，超 35% 上限',
-    btn:'怎么做', fn:'scrollToCard(\'actionCard\')'}));
+  conc.slice(0,1).forEach(x=>acts.push({cls:'act', tag:'红线',
+    text:x.type+'「'+esc(x.name)+'」占 '+pct(x.share,1)+'，超 35% 上限'}));
   if(reconDays!=null && reconDays>7) acts.push({cls:'warn', tag:'超 7 天未对账',
     text:'上次对账 '+reconDays+' 天前，该校准一次了', btn:'去对账', fn:'goRecon()'});
   const sd=styleDeviation(c);
-  sd.breaching.slice(0,2).forEach(r=>{
+  sd.breaching.slice(0,1).forEach(r=>{
     const dir=r.d>0?'超配':'低配';
     acts.push({cls:r.level==='红线'?'act':'warn', tag:'风格'+r.level,
       text:'基金ETF 内「'+esc(r.key)+'」'+dir+' '+pct(Math.abs(r.d),1)+'（实际 '+pct(r.actual,1)+' / 目标 '+pct(r.target,0)+'），约 '+money(Math.abs(r.amount)),
       btn:'去调整目标', fn:"switchAlloc('style')"});
   });
   const sec=sectorDeviation(c);
-  sec.breaching.slice(0,2).forEach(r=>{
+  sec.breaching.slice(0,1).forEach(r=>{
     const dir=r.d>0?'超配':'低配';
     acts.push({cls:r.level==='红线'?'act':'warn', tag:'行业'+r.level,
       text:'基金ETF 内行业「'+esc(r.key)+'」'+dir+' '+pct(Math.abs(r.d),1)+'（实际 '+pct(r.actual,1)+' / 目标 '+pct(r.target,0)+'），约 '+money(Math.abs(r.amount)),
@@ -740,7 +732,7 @@ function renderStatus(c){
   if(acts.length){
     title.textContent='现在的状态：需要处理';
     body.innerHTML='<ul class="tight">'+acts.map(a=>
-      `<li><span class="tag ${a.cls}">${a.tag}</span> ${a.text} <button class="sm ghost" onclick="${a.fn}">${a.btn}</button></li>`).join('')+'</ul>';
+      `<li><span class="tag ${a.cls}">${a.tag}</span> ${a.text}${a.btn?(' <button class="sm ghost" onclick="'+a.fn+'">'+a.btn+'</button>'):''}</li>`).join('')+'</ul>';
     card.style.borderColor='#e6a8a8';
     return;
   }
@@ -781,7 +773,6 @@ function renderStatus(c){
     '<div style="flex:2" class="muted">下次检查：'+checks.map(esc).join('；')+'</div></div>';
   card.style.borderColor='#b5d8b8';
 }
-function scrollToCard(id){ const el=document.getElementById(id); if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); } }
 function goPlan(){ const b=document.querySelector('#nav button[data-tab="plan"]'); if(b) b.click(); }
 function goRecon(){ const b=document.querySelector('#nav button[data-tab="recon"]'); if(b) b.click(); }
 function goLedger(focusId){
@@ -1006,30 +997,6 @@ function styleDeviation(c){
   rows.sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
   return {total:b.total, rows:rows, breaching:breaching};
 }
-function renderActions(c){
-  const devs = deviation(c), conc = concentration(c), box=document.getElementById('actions');
-  const card=document.getElementById('actionCard');
-  if(card) card.classList.toggle('hidden', !devs.length && !conc.list.length);
-  if(!devs.length && !conc.list.length){
-    box.innerHTML = '<div class="tag ok">配置正常</div><div class="muted" style="margin-top:6px">没有偏离超阈值的类别，也没有集中度超线。保持现状即可。</div>';
-    return;
-  }
-  let h = '<ul class="tight">';
-  devs.forEach(d=>{
-    const cls = d.level==='红线'?'act':(d.level==='行动'?'warn':'info');
-    const dir = d.d>0 ? '超配，建议减少' : '低配，建议补入';
-    const amt = money(Math.abs(d.amount));
-    const group = S.holdings.filter(x=>x.cat===d.cat && x.cat!=='负债')
-      .sort((a,b)=>valueOf(b)-valueOf(a)).slice(0,2).map(x=>x.name).join(' / ');
-    h += `<li><span class="tag ${cls}">${d.level}</span> ${esc(d.cat)}：目标 ${pct(d.target,0)}，实际 ${pct(d.actual,1)}，${dir}约 ${amt}${group?('，优先调整 '+esc(group)):''}</li>`;
-  });
-  conc.list.forEach(x=>{
-    h += `<li><span class="tag act">红线</span> ${x.type}「${esc(x.name)}」占 ${pct(x.share,1)}，超过 35% 上限</li>`;
-  });
-  h += '</ul>';
-  if(conc.coverage < 0.6) h += `<div class="muted" style="margin-top:6px">标签覆盖率仅 ${pct(conc.coverage,0)}，行业/地区集中度可能被低估（可在持仓里补标签）。</div>`;
-  box.innerHTML = h;
-}
 /* ============ 配置下钻：大类 / 风格 / 行业 ============ */
 let ALLOC_DIM = 'cat';
 function switchAlloc(dim){
@@ -1224,7 +1191,7 @@ function applyPlan(key){
   const zero={}; CATS.forEach(c=>zero[c]=0);
   S.targets=Object.assign(zero, p.t);
   S.meta.plan=p.name; S.meta.planBase=p.name; S.meta.planDesc=p.desc;
-  save(); renderTargets(); const c=compute(); renderKPI(c); renderActions(c); renderCat(c); flash('已套用：'+p.name);
+  save(); render(); flash('已套用：'+p.name);
 }
 function planByAge(){
   const age=prompt('你今年多少岁？（权益比例按 100 − 年龄 计算，区间 20%~90%）');
@@ -1235,7 +1202,7 @@ function planByAge(){
   S.meta.plan='年龄法则（'+a+'岁，权益'+Math.round(eq*100)+'%）';
   S.meta.planBase=S.meta.plan;
   S.meta.planDesc='年龄越小权益越高，随年龄自动下降；权益部分按 股票4:基金6 拆分';
-  save(); renderTargets(); const c=compute(); renderKPI(c); renderActions(c); renderCat(c); flash('已按年龄生成');
+  save(); render(); flash('已按年龄生成');
 }
 function resetToPlan(){
   const base=PLANS.find(p=>p.name===S.meta.planBase);
@@ -1254,7 +1221,7 @@ function renderStyleTargets(){
 }
 function setStyleTarget(k, v){
   S.styleTargets[k]=(Number(v)||0)/100;
-  save(); renderStyleTargets(); const c=compute(); renderStyle(c); renderStatus(c); renderKPI(c); flash('风格目标已更新');
+  save(); render(); flash('风格目标已更新');
 }
 function renderSectorTargets(){
   const box=document.getElementById('sectorTargetBox'); if(!box) return;
@@ -1268,7 +1235,7 @@ function renderSectorTargets(){
 }
 function setSectorTarget(k, v){
   S.sectorTargets[k]=(Number(v)||0)/100;
-  save(); renderSectorTargets(); const c=compute(); renderSector(c); renderStatus(c); renderKPI(c); flash('行业目标已更新');
+  save(); render(); flash('行业目标已更新');
 }
 
 /* ============ 操作 ============ */
@@ -1276,7 +1243,7 @@ function setTarget(cat, v){
   S.targets[cat]=(Number(v)||0)/100;
   const base=S.meta.planBase||'稳健型（权益55%）';
   if(S.meta.plan!=='自定义（改自 '+base+'）'){ S.meta.plan='自定义（改自 '+base+'）'; S.meta.planDesc='在「'+base+'」基础上手动调整'; }
-  save(); renderTargets(); const c=compute(); renderKPI(c); renderActions(c); renderCat(c);
+  save(); render();
 }
 function editH(id, field, v){
   const h=S.holdings.find(x=>x.id===id); if(!h) return;
