@@ -456,7 +456,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-19c';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-19d';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [], pending: [],
   styleTargets: {'宽基':0.40,'红利':0.15,'成长':0.10,'债':0,'现金':0,'行业主题':0.35},
@@ -553,8 +553,11 @@ function totalGain(){
   const c = compute();
   if(sn.length===0) return null;
   const first = Number(sn[0].net)||0;
-  const flows = S.transactions.filter(t=>(t.type==='转入'||t.type==='转出') && t.date >= sn[0].date)
-    .reduce((a,t)=> a + (t.type==='转入'?1:-1)*(Number(t.amount)||0), 0);
+  // 外部资金进出口径与对账页 externalFlow 对齐：转入/转出 + 定投的「新增资金」类
+  // （fromId 为空的定投确认 = 新钱进来，不扣就会虚增收益）
+  const isIn = t => t.type==='转入' || (t.type==='定投' && t.external);
+  const flows = S.transactions.filter(t=>(isIn(t)||t.type==='转出') && t.date >= sn[0].date)
+    .reduce((a,t)=> a + (isIn(t)?1:-1)*(Number(t.amount)||0), 0);
   return {amount: c.net - first - flows, flows: flows, first: first, firstDate: sn[0].date};
 }
 function drawdown(){
@@ -640,11 +643,12 @@ function renderKPI(c){
     `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="hint">${k.hint}</div></div>`).join('');
 }
 /* ============ 首页三态状态机（不沉默：必见三态之一） ============ */
+// 只报真异常。注意：成本单价为负是合法的（做T/波段后已实现盈利冲减剩余持仓花费的
+// 常见展示口径），不算数据异常；数量为负才是真错误。
 function dataIssues(){
   const bad=[];
   S.holdings.forEach(h=>{
     if((Number(h.qty)||0)<0) bad.push(h.name+' 数量为负');
-    if(h.cat!=='负债' && (Number(h.cost)||0)<0) bad.push(h.name+' 成本为负');
   });
   return bad;
 }
@@ -1075,6 +1079,10 @@ function renderHealth(c){
   ];
   if(!hasDebt && (S.holdings||[]).length){
     rows.push('<div class="muted">没录负债。有房贷/车贷/欠款的话，去「持仓 → 新增」加一条大类选「负债」——净资产会真实很多。</div>');
+  }
+  if(S.snapshots.length){
+    rows.push('<div class="muted">记账以来收益口径：当前净资产 − '+esc(S.snapshots[0].date)+
+      ' 首个快照 − 期间转入/转出（含定投新增资金）。⚠ 若一段时间资产没有行情价格（如刚导入还没抓到净值），市值按「数量=金额」压低，之后行情到位的跳变会算进这段收益——那不是真实盈亏。</div>');
   }
   document.getElementById('health').innerHTML = rows.join('');
 }
