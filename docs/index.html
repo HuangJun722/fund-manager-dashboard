@@ -236,6 +236,7 @@ ul.tight li{margin-bottom:3px}
         <optgroup label="常用">
           <option value="转入">外部转入（工资/新钱进来）</option>
           <option value="转出">外部转出（取走/花掉）</option>
+          <option value="加仓">加仓（买入，自动加份额）</option>
           <option value="收益">收益/分红</option>
         </optgroup>
         <optgroup label="其他">
@@ -312,6 +313,32 @@ ul.tight li{margin-bottom:3px}
     <div class="row" style="margin-top:8px">
       <button onclick="addPlan()">添加计划</button>
       <span class="muted" style="flex:2" id="pFreqHint">每月固定日期扣款；当月没有该日期时自动取月末。</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>主动加仓（定投之外的手动买入）</h2>
+    <div class="muted">银行/券商 App 里真实发生的买入，在这里记一笔即成为账目里的真实资产。按金额或按份额都行；扣款可以和定投待确认<b>相互核销</b>——银行已经扣了款，在这里加账并勾选核销，该期待确认就转为真实资产，不再重复催。</div>
+    <div class="row" style="margin-top:8px">
+      <input type="date" id="bDate" title="买入日期">
+      <select id="bAsset"></select>
+      <select id="bFrom"></select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <select id="bMode" onchange="onBuyModeChange()" style="max-width:130px">
+        <option value="amt">按金额买（元）</option>
+        <option value="sh">按份额买</option>
+      </select>
+      <input id="bAmt" type="number" step="any" placeholder="买入金额（元）">
+      <span id="bShWrap" class="hidden"><input id="bSh" type="number" step="any" placeholder="买入份额"></span>
+      <span class="muted" id="bEst" style="flex:1;min-width:120px"></span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="bNote" placeholder="备注（如 主动加仓 科创50）">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="buyExtra()">买入并入账</button>
+      <label class="muted" style="flex:2"><input type="checkbox" id="bClearPend" checked style="width:auto"> 同时核销该资产最近一笔待确认（银行已扣款时勾选）</label>
     </div>
   </div>
 
@@ -462,7 +489,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-19e';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-19f';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [], pending: [],
   styleTargets: {'宽基':0.40,'红利':0.15,'成长':0.10,'债':0,'现金':0,'行业主题':0.35},
@@ -542,6 +569,7 @@ function externalFlow(after, before){
     if(t.type==='转入' && t.date>before && t.date<=after) f += Number(t.amount)||0;
     if(t.type==='转出' && t.date>before && t.date<=after) f -= Number(t.amount)||0;
     if(t.type==='定投' && t.external && t.date>before && t.date<=after) f += Number(t.amount)||0;
+    if(t.type==='加仓' && t.external && t.date>before && t.date<=after) f += Number(t.amount)||0;
   });
   return f;
 }
@@ -561,9 +589,9 @@ function totalGain(){
   const c = compute();
   if(sn.length===0) return null;
   const first = Number(sn[0].net)||0;
-  // 外部资金进出口径与对账页 externalFlow 对齐：转入/转出 + 定投的「新增资金」类
-  // （fromId 为空的定投确认 = 新钱进来，不扣就会虚增收益）
-  const isIn = t => t.type==='转入' || (t.type==='定投' && t.external);
+  // 外部资金进出口径与对账页 externalFlow 对齐：转入/转出 + 定投/加仓的「新增资金」类
+  // （fromId 为空的确认 = 新钱进来，不扣就会虚增收益）
+  const isIn = t => t.type==='转入' || ((t.type==='定投'||t.type==='加仓') && t.external);
   const flows = S.transactions.filter(t=>(isIn(t)||t.type==='转出') && t.date >= sn[0].date)
     .reduce((a,t)=> a + (isIn(t)?1:-1)*(Number(t.amount)||0), 0);
   return {amount: c.net - first - flows, flows: flows, first: first, firstDate: sn[0].date};
@@ -891,7 +919,7 @@ function renderTimeline(scope){
   let h='';
   shown.forEach(it=>{
     if(it.kind==='tx'){
-      const src = it.t.type==='定投' ? '定投确认' : '手动记录';
+      const src = it.t.type==='定投' ? '定投确认' : (it.t.type==='加仓' ? '主动加仓' : '手动记录');
       h+=`<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)">
         <span class="tag info" style="flex:none;height:fit-content">已发生</span>
         <div style="flex:1"><b>${it.t.date}</b> ${esc(it.t.type)} ${money(it.t.amount)}`+
@@ -1305,9 +1333,13 @@ function undoTx(){
     const p=S.plans.find(x=>x.id===t.planId);
     if(p && p.executed){ const i=p.executed.lastIndexOf(t.date); if(i>=0) p.executed.splice(i,1); }
   }
-  if(t.pendId){   // 撤销确认 = 这笔没发生过：该期回到待确认，等用户重新核对
+  if(t.pendId){   // 撤销确认/加仓核销 = 这笔没发生过：该期回到待确认，executed 登记一并回退
     const pd=S.pending.find(x=>x.id===t.pendId);
-    if(pd){ pd.status='pending'; delete pd.reason; delete pd.realAmount; delete pd.realShares; }
+    if(pd){
+      pd.status='pending'; delete pd.reason; delete pd.realAmount; delete pd.realShares;
+      const pl=S.plans.find(x=>x.id===pd.planId);
+      if(pl && pl.executed){ const i=pl.executed.lastIndexOf(pd.date); if(i>=0) pl.executed.splice(i,1); }
+    }
   }
   S.transactions.pop(); save(); render(); flash('已撤销');
 }
@@ -1363,6 +1395,76 @@ function dueDates(p, until){
 function nextDue(p){
   const done=(p.executed||[]).concat(p.skipped||[]).concat(p.missed||[]);
   return dueDates(p, addDaysStr(today(),400)).find(d=>d>=today() && !done.includes(d)) || '';
+}
+/* ============ 主动加仓（定投之外的手动买入 → 直接成为真实资产） ============ */
+function onBuyModeChange(){
+  const m=document.getElementById('bMode').value;
+  document.getElementById('bShWrap').classList.toggle('hidden', m!=='sh');
+  document.getElementById('bAmt').classList.toggle('hidden', m==='sh');
+  updateBuyEst();
+}
+function updateBuyEst(){
+  const h=S.holdings.find(x=>x.id===document.getElementById('bAsset').value);
+  const el=document.getElementById('bEst'); if(!el) return;
+  if(!h){ el.textContent=''; return; }
+  const m=document.getElementById('bMode').value, p=priceOf(h);
+  if(p<=0){ el.textContent='该资产暂无行情，按 金额=份额 处理'; return; }
+  const amt=Number(document.getElementById('bAmt').value)||0, sh=Number(document.getElementById('bSh').value)||0;
+  el.textContent = (m==='amt'&&amt>0) ? ('按净值 ¥'+p.toFixed(4)+' 约 '+(amt/p).toFixed(2)+' 份')
+                 : (m==='sh'&&sh>0) ? ('按净值 ¥'+p.toFixed(4)+' 约 ¥'+(sh*p).toFixed(0)) : ('当前净值 ¥'+p.toFixed(4));
+}
+function buyExtra(){
+  const h=S.holdings.find(x=>x.id===document.getElementById('bAsset').value);
+  if(!h){ flash('先选买入标的'); return; }
+  const from=S.holdings.find(x=>x.id===document.getElementById('bFrom').value);
+  const date=document.getElementById('bDate').value||today();
+  const mode=document.getElementById('bMode').value, p=priceOf(h);
+  let amt, shares;
+  if(mode==='amt'){
+    amt=Number(document.getElementById('bAmt').value)||0;
+    if(amt<=0){ flash('先填买入金额'); return; }
+    shares = p>0 ? amt/p : amt;
+  }else{
+    shares=Number(document.getElementById('bSh').value)||0;
+    if(shares<=0){ flash('先填买入份额'); return; }
+    amt = p>0 ? shares*p : shares;
+  }
+  // 核销该资产最近一笔待确认（银行已扣款 → 这笔记账就是那期的真实资产）
+  let cleared=null;
+  if(document.getElementById('bClearPend').checked){
+    const cand=(S.pending||[]).filter(x=>x.status==='pending' && (x.assetId===h.id || x.assetName===h.name))
+      .sort((a,b)=>b.date.localeCompare(a.date))[0];
+    if(cand){
+      cand.status='confirmed'; cand.realAmount=amt; cand.realShares=shares; cand.reason='由主动加仓核销';
+      const pl=S.plans.find(x=>x.id===cand.planId);
+      if(pl){ pl.executed=pl.executed||[]; pl.executed.push(cand.date); }
+      cleared=cand;
+    }
+  }
+  const prevQty=Number(h.qty)||0;
+  h.qty=prevQty+shares;
+  const fromPrev=from?(Number(from.qty)||0):null;
+  if(from) from.qty=fromPrev-amt;
+  S.transactions.push({id:'t'+Date.now()+Math.random().toString(36).slice(2,6), date:date, type:'加仓',
+    account: from?(from.account||''):'新增资金', accountTo:'', amount:amt,
+    assetId:h.id, assetName:h.name, note:(document.getElementById('bNote').value.trim()||'主动加仓'),
+    external:!from, prevQty:prevQty, fromId:from?from.id:'', fromPrevQty:fromPrev, newQty:h.qty,
+    shares:shares, pendId:cleared?cleared.id:''});
+  save(); refreshBuySelects(); render();
+  flash('已入账：'+money(amt)+(cleared?('，并核销 '+cleared.date+' 期待确认'):''));
+  ['bAmt','bSh','bNote'].forEach(i=>document.getElementById(i).value='');
+  updateBuyEst();
+}
+function refreshBuySelects(){
+  const a=document.getElementById('bAsset'), f=document.getElementById('bFrom');
+  if(!a||!f) return;
+  const ca=a.value, cf=f.value;
+  const opts=S.holdings.filter(h=>h.cat!=='负债');
+  a.innerHTML= opts.length? opts.map(h=>`<option value="${h.id}">买入：${esc(h.account)} / ${esc(h.name)}</option>`).join('') : '<option value="">（先在持仓页添加资产）</option>';
+  f.innerHTML= '<option value="">新增资金（外部转入）</option>'+opts.map(h=>`<option value="${h.id}">扣款：${esc(h.account)} / ${esc(h.name)}</option>`).join('');
+  a.value=ca; f.value=cf;
+  a.onchange=updateBuyEst;
+  updateBuyEst();
 }
 /* ============ 定投：计划与交易彻底分离 ============
    铁律：计划到期只生成「待确认」记录，不进正式账目；用户确认（可改实际金额/份额）
@@ -1883,6 +1985,7 @@ function fillSelects(){
   document.getElementById('pHKD').value=S.params.fx.HKD;
   document.getElementById('tDate').value=today();
   const ps=document.getElementById('pStart'); if(ps && !ps.value) ps.value=today();
+  const bd=document.getElementById('bDate'); if(bd && !bd.value) bd.value=today();
   const pn=document.getElementById('pDayNum'); if(pn && !pn.value) pn.value=String(Math.min(new Date().getDate(),28));
   if(typeof onFreqChange==='function') onFreqChange();
   document.getElementById('quoteState').textContent=S.meta.quoteDate?('最近更新：'+S.meta.quoteDate):'尚未更新';
@@ -1909,9 +2012,9 @@ document.getElementById('nav').addEventListener('click', e=>{
   document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on', x===b));
   ['home','hold','ledger','plan','cal','recon','set'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==TAB));
   if(TAB==='ledger') refreshAssetSelect();
-  if(TAB==='plan') refreshPlanSelects();
+  if(TAB==='plan'){ refreshPlanSelects(); refreshBuySelects(); }
 });
-fillSelects(); render(); refreshAssetSelect(); refreshPlanSelects();
+fillSelects(); render(); refreshAssetSelect(); refreshPlanSelects(); refreshBuySelects();
 // 记账页预填：今天日期 + 上次用过的账户（少两步操作）
 {
   const td=document.getElementById('tDate'); if(td && !td.value) td.value=today();
