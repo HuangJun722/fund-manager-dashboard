@@ -56,6 +56,8 @@ button.sm{padding:4px 8px;font-size:12px}
 .tag.act{background:var(--red-soft);color:var(--red)}
 .tag.ok{background:var(--green-soft);color:var(--green)}
 .tag.info{background:var(--blue-soft);color:var(--blue)}
+.tag.snap{background:#eef1f6;color:#475569}
+.tag.plan{background:#fff;border:1px dashed var(--muted);color:var(--muted)}
 ul.tight{margin:6px 0 0;padding-left:18px}
 ul.tight li{margin-bottom:3px}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -113,16 +115,31 @@ ul.tight li{margin-bottom:3px}
       <button class="ghost" onclick="goHold('pasteBox');">③ 粘贴 Excel 数据导入</button>
     </div>
   </div>
+  <div class="card" id="statusCard">
+    <div class="row" style="align-items:flex-start">
+      <div style="flex:3;min-width:220px">
+        <h2 id="statusTitle" style="margin-bottom:6px">现在的状态</h2>
+        <div id="statusBody"></div>
+      </div>
+      <div style="flex:2;min-width:180px" id="statusTrust" class="muted"></div>
+    </div>
+  </div>
   <div class="grid kpis" id="kpis"></div>
 
-  <div class="card" id="actionCard">
-    <h2>当前最大问题 & 下一步动作</h2>
+  <div class="card hidden" id="actionCard">
+    <h2>偏离明细 & 下一步动作</h2>
     <div id="actions"></div>
   </div>
 
   <div class="card hidden" id="planCard">
-    <h2>定投（设置一次，到期自动入账）</h2>
+    <h2>定投（到期先待确认，核对后才入账）</h2>
     <div id="planHome"></div>
+  </div>
+
+  <div class="card" id="timelineCard">
+    <h2>资产时间线（最近）</h2>
+    <div id="timelineHome"></div>
+    <div class="muted" style="margin-top:6px"><a href="#" onclick="goLedger('tlAll');return false;">查看完整时间线（记账页）→</a></div>
   </div>
 
   <div class="split">
@@ -239,17 +256,24 @@ ul.tight li{margin-bottom:3px}
     <h2>流水</h2>
     <div style="overflow-x:auto"><table id="txTable"></table></div>
   </div>
+
+  <div class="card" id="tlAll">
+    <h2>资产时间线（完整）</h2>
+    <div class="muted" style="margin-bottom:8px">三种数据严格分标识：<b>已发生交易</b>（流水）/ <b>实际采集快照</b>（净值曲线，只画有记录的日子，缺口不补）/ <b>待确认与未来计划</b>（未执行，永不像成交）。</div>
+    <div id="timelineAll"></div>
+  </div>
 </section>
 
 <!-- ============ 定投 ============ -->
 <section id="tab-plan" class="hidden">
   <div class="card">
+    <h2>待确认（到期待核对） <span class="tag warn" id="pendCount">0</span></h2>
+    <div id="pendBox"></div>
+  </div>
+
+  <div class="card">
     <h2>定投计划</h2>
-    <div class="muted">设置一次，之后每次打开页面系统会自动把「已到期但还没记」的期次补进流水和持仓，不用手动记一笔。补记按到期日当天的最新价折算份额；没价格的资产按「金额=份额」处理。</div>
-    <div class="row" style="margin-top:8px">
-      <button onclick="syncPlans(false)">立即同步（补记到期期次）</button>
-      <span class="muted" id="planSyncState" style="flex:2"></span>
-    </div>
+    <div class="muted">到期不再自动入账：每期到期先生成「待确认」记录，核对实际扣款后再写入账目——系统不替未经核实的事实盖章。</div>
     <div style="overflow-x:auto;margin-top:10px"><table id="planTable"></table></div>
   </div>
 
@@ -283,13 +307,13 @@ ul.tight li{margin-bottom:3px}
   </div>
 
   <div class="card">
-    <h2>说明</h2>
+    <h2>计划 vs 账目（怎么分工）</h2>
     <div class="muted">
-      <b>扣款账户</b>：选一个现金/活期类持仓，系统会自动从它扣减相同金额，钱不会凭空多出来；选「新增资金（外部转入）」表示每期是新钱投入，会计入外部资金进出。<br>
-      <b>跳过本期</b>：本期不投，标记已处理，不产生流水。<br>
-      <b>暂停</b>：保留计划，期间不再自动补记，恢复后不会倒补暂停期的期次。<br>
-      <b>撤销</b>：在「记账 → 撤销上一笔」可撤销最后一笔定投（持仓数量一并回滚）。<br>
-      <b>补历史</b>：起始日期填过去，一次最多自动补 24 期，避免误填导致灌入大量流水。
+      <b>待确认</b>：每期扣款日过后，系统自动生成一条待确认（计划金额 + 当时参考净值），<b>不进账目</b>。你核对银行账单后：确认（可改实际金额/份数）→ 才写流水、改持仓；跳过=银行没扣；未执行=失误漏扣。后两者只留记录。<br>
+      <b>批量确认</b>：待确认表格勾选多行 → 「确认勾选期次」，一次处理一批，批内逐笔可改。<br>
+      <b>扣款账户</b>：选一个现金/活期类持仓，确认时从它扣减相同金额；选「新增资金」表示每期是新钱投入，计入外部资金进出。<br>
+      <b>暂停</b>：保留计划，暂停期间到期期次不生成待确认，恢复后不倒补。<br>
+      <b>撤销</b>：确认后的流水可在「记账 → 撤销上一笔」撤销（持仓数量一并回滚）。
     </div>
   </div>
 </section>
@@ -403,9 +427,9 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-18f';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-19b';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
-  holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [],
+  holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [], pending: [],
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
   params: {benchmark:'沪深300', benchChange:0, drawdown:5, devAbs:5, devRel:50, market:'中性', fx:{CNY:1, USD:7.10, HKD:0.92}},
   meta: {lastReconcile:'', quoteDate:'', lastSnapshot:'', plan:'稳健型（权益55%）', planBase:'稳健型（权益55%）', planDesc:''}
@@ -421,7 +445,7 @@ function load(){
     s.params = Object.assign({}, DEFAULTS.params, s.params || {});
     s.params.fx = Object.assign({}, DEFAULTS.params.fx, (s.params.fx||{}));
     s.meta = Object.assign({}, DEFAULTS.meta, s.meta || {});
-    ['holdings','transactions','snapshots','plans'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+    ['holdings','transactions','snapshots','plans','pending'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
     if(!s.quotes) s.quotes = {};
     if(!s.targets) s.targets = Object.assign({}, DEFAULTS.targets);
     return s;
@@ -555,11 +579,13 @@ function updateHdsub(){
 }
 function render(){
   const c = compute();
-  renderKPI(c); renderActions(c); renderCat(c); renderAcc(c);
-  renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderPlans();
+  renderStatus(c); renderKPI(c); renderActions(c); renderCat(c); renderAcc(c);
+  renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets();
+  renderPlans(); renderPending(); renderTimeline('home'); renderTimeline('all');
   document.getElementById('mktVal').textContent = S.params.market || '—';
   updateHdsub();
   const es=document.getElementById('emptyStart'); if(es) es.classList.toggle('hidden', S.holdings.length>0);
+  const tc=document.getElementById('timelineCard'); if(tc) tc.classList.toggle('hidden', false);
 }
 function renderKPI(c){
   const g = totalGain(), t = twr(), dd = drawdown();
@@ -582,8 +608,185 @@ function renderKPI(c){
   document.getElementById('kpis').innerHTML = kpis.map(k=>
     `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="hint">${k.hint}</div></div>`).join('');
 }
+/* ============ 首页三态状态机（不沉默：必见三态之一） ============ */
+function dataIssues(){
+  const bad=[];
+  S.holdings.forEach(h=>{
+    if((Number(h.qty)||0)<0) bad.push(h.name+' 数量为负');
+    if(h.cat!=='负债' && (Number(h.cost)||0)<0) bad.push(h.name+' 成本为负');
+  });
+  return bad;
+}
+function renderStatus(c){
+  const title=document.getElementById('statusTitle'), body=document.getElementById('statusBody'),
+        trust=document.getElementById('statusTrust'), card=document.getElementById('statusCard');
+  const pend=pendingList(), devs=deviation(c).filter(x=>x.level==='红线'||x.level==='行动');
+  const conc=concentration(c).list, issues=dataIssues();
+  const reconDays = S.meta.lastReconcile ? Math.round((Date.now()-new Date(S.meta.lastReconcile))/86400000) : null;
+  // 数据可信度副标题：行情日期 / 上次对账 / 待确认数 / 快照数
+  trust.innerHTML =
+    '行情日期：<b>'+esc(S.meta.quoteDate||'无')+'</b><br>'+
+    '上次对账：<b>'+esc(S.meta.lastReconcile||'从未')+'</b>'+(reconDays!=null?('（'+reconDays+' 天前）'):'')+'<br>'+
+    '待确认定投：<b>'+pend.length+'</b> 期<br>'+
+    '已记录快照：<b>'+S.snapshots.length+'</b> 个';
+  const acts=[];   // {tag, cls, text, btnLabel, onclick}
+  if(pend.length) acts.push({cls:'act', tag:'待确认',
+    text:'有 <b>'+pend.length+'</b> 期定投到期未核对（约 '+money(pend.reduce((a,x)=>a+x.amount,0))+'），核对后才入账',
+    btn:'去确认', fn:'goPlan()'});
+  devs.slice(0,3).forEach(d=>{
+    const dir=d.d>0?'超配':'低配';
+    acts.push({cls:d.level==='红线'?'act':'warn', tag:d.level,
+      text:esc(d.cat)+' '+dir+' '+pct(Math.abs(d.d),1)+'（实际 '+pct(d.actual,1)+' / 目标 '+pct(d.target,0)+'），约 '+money(Math.abs(d.amount)),
+      btn:'怎么做', fn:'scrollToCard(\'actionCard\')'});
+  });
+  conc.slice(0,2).forEach(x=>acts.push({cls:'act', tag:'红线',
+    text:x.type+'「'+esc(x.name)+'」占 '+pct(x.share,1)+'，超 35% 上限',
+    btn:'怎么做', fn:'scrollToCard(\'actionCard\')'}));
+  if(reconDays!=null && reconDays>7) acts.push({cls:'warn', tag:'超 7 天未对账',
+    text:'上次对账 '+reconDays+' 天前，该校准一次了', btn:'去对账', fn:'goRecon()'});
+  issues.slice(0,2).forEach(x=>acts.push({cls:'act', tag:'数据异常',
+    text:esc(x)+'，账目可能失真', btn:'去检查', fn:'goHold()'}));
+  if(acts.length){
+    title.textContent='现在的状态：需要处理';
+    body.innerHTML='<ul class="tight">'+acts.map(a=>
+      `<li><span class="tag ${a.cls}">${a.tag}</span> ${a.text} <button class="sm ghost" onclick="${a.fn}">${a.btn}</button></li>`).join('')+'</ul>';
+    card.style.borderColor='#e6a8a8';
+    return;
+  }
+  // 近期有计划：未来 7 天到期定投 / 即将到对账日
+  const soon=[]; S.plans.filter(p=>p.status==='active').forEach(p=>{
+    dueDates(p, addDaysStr(today(),7)).forEach(d=>{
+      if(d>=today() && !(p.executed||[]).concat(p.skipped||[]).concat(p.missed||[]).includes(d)
+         && !pend.some(x=>x.planId===p.id && x.date===d))
+        soon.push({d:d, p:p});
+    });
+  });
+  soon.sort((a,b)=>a.d.localeCompare(b.d));
+  if(soon.length || (reconDays!=null && reconDays>=4)){
+    title.textContent='现在的状态：近期有计划';
+    let h='';
+    if(soon.length) h+='<div class="muted" style="margin-bottom:4px">未来 7 天定投到期（<b>计划，非已执行</b>）</div><ul class="tight">'+
+      soon.slice(0,5).map(x=>`<li><span class="tag info">${x.d}</span> ${esc(x.p.name||'定投')} 扣款 ${money(x.p.amount)}（${esc(x.p.fromName||'新增资金')}）</li>`).join('')+'</ul>';
+    if(reconDays!=null && reconDays>=4) h+='<div class="muted" style="margin-top:4px">距上次对账 '+reconDays+' 天，'+ (7-reconDays) +' 天后该对账了。</div>';
+    body.innerHTML=h;
+    card.style.borderColor='#b8cde8';
+    return;
+  }
+  // 当前无需调整：明确说「没事」，并给下次检查时间
+  title.textContent='现在的状态：当前无需调整';
+  const nextCheck=[];
+  S.plans.filter(p=>p.status==='active').forEach(p=>{
+    const d=nextDue(p); if(d) nextCheck.push(d);
+  });
+  nextCheck.sort();
+  const nextPlanDay=nextCheck[0]||'';
+  const reconNext = reconDays!=null ? addDaysStr(S.meta.lastReconcile,7) : '';
+  const checks=[];
+  if(nextPlanDay) checks.push('下次定投扣款日 '+nextPlanDay+'（计划，非已执行）');
+  if(reconNext) checks.push('下次建议对账 '+reconNext);
+  if(!checks.length) checks.push('下次定投扣款日或对账日');
+  body.innerHTML='<div class="row"><div style="flex:3"><span class="tag ok">配置在纪律内、无待办</span>'+
+    '<div class="muted" style="margin-top:6px">没有偏离超线、没有待确认、没有异常。保持现状即可。</div></div>'+
+    '<div style="flex:2" class="muted">下次检查：'+checks.map(esc).join('；')+'</div></div>';
+  card.style.borderColor='#b5d8b8';
+}
+function scrollToCard(id){ const el=document.getElementById(id); if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); } }
+function goPlan(){ const b=document.querySelector('#nav button[data-tab="plan"]'); if(b) b.click(); }
+function goRecon(){ const b=document.querySelector('#nav button[data-tab="recon"]'); if(b) b.click(); }
+function goLedger(focusId){
+  const b=document.querySelector('#nav button[data-tab="ledger"]'); if(b) b.click();
+  if(focusId){ setTimeout(()=>{ const el=document.getElementById(focusId); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }, 60); }
+}
+
+/* ============ 资产时间线：交易 / 快照 / 待确认 / 未来计划 四类分标识 ============ */
+function timelineItems(){
+  const items=[];
+  S.transactions.forEach(t=>items.push({kind:'tx', date:t.date, t:t}));
+  S.snapshots.forEach(s=>items.push({kind:'snap', date:s.date, s:s}));
+  pendingList().forEach(p=>items.push({kind:'pend', date:p.date, p:p}));
+  const pend=pendingList();
+  S.plans.filter(p=>p.status==='active').forEach(p=>{
+    const done=(p.executed||[]).concat(p.skipped||[]).concat(p.missed||[]);
+    dueDates(p, addDaysStr(today(),90)).forEach(d=>{
+      if(d<today()) return;                                   // 过去到期的已进 pending，不重复
+      if(done.includes(d)) return;
+      if(pend.some(x=>x.planId===p.id && x.date===d)) return; // 已生成待确认的归 pend 类
+      items.push({kind:'plan', date:d, p:p});
+    });
+  });
+  items.sort((a,b)=>b.date.localeCompare(a.date));
+  return items;
+}
+function snapStats(){
+  const sn=S.snapshots;
+  if(sn.length<2) return null;
+  const maxNet=Math.max.apply(null, sn.map(s=>Number(s.net)||0));
+  let peak=Number(sn[0].net)||0, mdd=0;
+  for(let i=1;i<sn.length;i++){
+    const v=Number(sn[i].net)||0;
+    if(v>peak) peak=v;
+    if(peak>0) mdd=Math.min(mdd, v/peak-1);
+  }
+  let gap=0, gapAt='';
+  for(let i=1;i<sn.length;i++){
+    const d=Math.round((s2d(sn[i].date)-s2d(sn[i-1].date))/86400000);
+    if(d>gap){ gap=d; gapAt=sn[i-1].date+' → '+sn[i].date; }
+  }
+  return {maxNet:maxNet, mdd:mdd, n:sn.length, from:sn[0].date, to:sn[sn.length-1].date,
+          gap:gap, gapAt:gapAt};
+}
+function renderTimeline(scope){
+  const box=document.getElementById(scope==='home'?'timelineHome':'timelineAll');
+  if(!box) return;
+  const items=timelineItems();
+  // 首页摘要：最近已发生的 6 条 + 最近的未来计划 2 条（计划不刷屏，历史才是有故事的部分）
+  const hist=items.filter(x=>x.kind!=='plan').slice(0,6);
+  const future=items.filter(x=>x.kind==='plan').slice(-2).reverse();
+  const shown = scope==='home' ? future.concat(hist).sort((a,b)=>b.date.localeCompare(a.date)) : items.slice(0,100);
+  let h='';
+  shown.forEach(it=>{
+    if(it.kind==='tx'){
+      const src = it.t.type==='定投' ? '定投确认' : '手动记录';
+      h+=`<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)">
+        <span class="tag info" style="flex:none;height:fit-content">已发生</span>
+        <div style="flex:1"><b>${it.t.date}</b> ${esc(it.t.type)} ${money(it.t.amount)}`+
+        (it.t.assetName?(' · '+esc(it.t.assetName)):'')+
+        (it.t.account?('（'+esc(it.t.account)+'）'):'')+'</div>'+
+        `<div class="muted" style="flex:none">${src}</div></div>`;
+    }else if(it.kind==='snap'){
+      h+=`<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)">
+        <span class="tag snap" style="flex:none;height:fit-content">快照</span>
+        <div style="flex:1"><b>${it.s.date}</b> 净资产 ${money(it.s.net)}</div>
+        <div class="muted" style="flex:none">实际采集</div></div>`;
+    }else if(it.kind==='pend'){
+      h+=`<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)">
+        <span class="tag warn" style="flex:none;height:fit-content">待确认</span>
+        <div style="flex:1"><b>${it.p.date}</b> ${esc(it.p.planName)} 应扣 ${money(it.p.amount)}</div>
+        <div class="muted" style="flex:none">计划到期 · 未入账</div></div>`;
+    }else{
+      h+=`<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line)">
+        <span class="tag plan" style="flex:none;height:fit-content">计划</span>
+        <div style="flex:1;color:var(--muted)"><b>${it.date}</b> ${esc(it.p.name||'定投')} 计划扣款 ${money(it.p.amount)}</div>
+        <div class="muted" style="flex:none">未执行</div></div>`;
+    }
+  });
+  if(!shown.length) h='<div class="muted">还没有记录。每天首次打开自动记一个快照；记一笔流水、设置一个定投计划后，这里会长出完整故事。</div>';
+  // 统计措辞守界：只称「已记录快照中」，并附覆盖情况
+  const st=snapStats();
+  if(st && scope==='all'){
+    h+=`<div class="box-tip" style="margin-top:10px">
+      观测区间 ${st.from} → ${st.to}：已记录快照中的最高资产值 <b>${money(st.maxNet)}</b>；区间内最大回撤 <b>${pct(Math.abs(st.mdd),1)}</b>。<br>
+      <span class="muted">覆盖情况：${st.n} 个快照${st.gap>7?('；最长 '+st.gap+' 天没有采集（'+esc(st.gapAt)+'），这段没有历史数据、曲线断开，补不了'):('；最长间隔 '+st.gap+' 天')}。</span></div>`;
+  }else if(st && scope==='home'){
+    h+=`<div class="muted" style="margin-top:6px">已记录快照 ${st.n} 个（${st.from} 起）· 最高 ${money(st.maxNet)} · 最大回撤 ${pct(Math.abs(st.mdd),1)}（仅限已记录快照区间）</div>`;
+  }
+  box.innerHTML=h;
+}
+/* ============ 偏离明细 ============ */
 function renderActions(c){
   const devs = deviation(c), conc = concentration(c), box=document.getElementById('actions');
+  const card=document.getElementById('actionCard');
+  if(card) card.classList.toggle('hidden', !devs.length && !conc.list.length);
   if(!devs.length && !conc.list.length){
     box.innerHTML = '<div class="tag ok">配置正常</div><div class="muted" style="margin-top:6px">没有偏离超阈值的类别，也没有集中度超线。保持现状即可。</div>';
     return;
@@ -823,6 +1026,10 @@ function undoTx(){
     const p=S.plans.find(x=>x.id===t.planId);
     if(p && p.executed){ const i=p.executed.lastIndexOf(t.date); if(i>=0) p.executed.splice(i,1); }
   }
+  if(t.pendId){   // 撤销确认 = 这笔没发生过：该期回到待确认，等用户重新核对
+    const pd=S.pending.find(x=>x.id===t.pendId);
+    if(pd){ pd.status='pending'; delete pd.reason; delete pd.realAmount; delete pd.realShares; }
+  }
   S.transactions.pop(); save(); render(); flash('已撤销');
 }
 function calibAcc(i){
@@ -875,46 +1082,112 @@ function dueDates(p, until){
   return out;
 }
 function nextDue(p){
-  const done=(p.executed||[]).concat(p.skipped||[]);
+  const done=(p.executed||[]).concat(p.skipped||[]).concat(p.missed||[]);
   return dueDates(p, addDaysStr(today(),400)).find(d=>d>=today() && !done.includes(d)) || '';
 }
-function runPlanOnce(p, date){
-  const amt=Number(p.amount)||0; if(amt<=0) return;
-  const h=S.holdings.find(x=>x.id===p.assetId);
-  const from=S.holdings.find(x=>x.id===p.fromId);
-  const unit = (h && priceOf(h)>0) ? priceOf(h) : 1;
-  const fUnit = (from && priceOf(from)>0) ? priceOf(from) : 1;
-  const prevQty = h? Number(h.qty)||0 : null;
-  const fromPrev = from? Number(from.qty)||0 : null;
-  if(h) h.qty = prevQty + amt/unit;
-  if(from) from.qty = fromPrev - amt/fUnit;
-  S.transactions.push({id:'tp'+Date.now()+Math.random().toString(36).slice(2,6), date:date, type:'定投',
-    account: from? (from.account||'') : '新增资金', accountTo:'', amount:amt,
-    assetId: p.assetId||'', assetName: h? h.name : (p.assetName||''),
-    note:(p.name||'定投')+' 自动入账', planId:p.id, external: !from,
-    prevQty: prevQty, fromId: p.fromId||'', fromPrevQty: fromPrev, newQty: h? h.qty : null});
-  p.executed = p.executed||[]; p.executed.push(date);
-}
-function syncPlans(quiet){
-  S.plans = S.plans||[];
+/* ============ 定投：计划与交易彻底分离 ============
+   铁律：计划到期只生成「待确认」记录，不进正式账目；用户确认（可改实际金额/份额）
+   才写流水、改持仓。系统可以自动生成待办，不能替事实盖章。 */
+// 该计划在 until（默认今天）之前到期、但尚未确认/跳过/标记的期次 → 生成待确认记录
+function genPending(quiet){
+  S.plans = S.plans||[]; S.pending = S.pending||[];
   let n=0;
   S.plans.forEach(p=>{
     if(p.status!=='active') return;
-    const done=(p.executed||[]).concat(p.skipped||[]);
-    const pend=dueDates(p).filter(d=>!done.includes(d));
-    if(!pend.length) return;
-    const run=pend.slice(-24);
-    if(pend.length>24 && !quiet) flash('「'+(p.name||'定投')+'」有 '+pend.length+' 期未记，本次只补最近 24 期');
-    run.forEach(d=>{ runPlanOnce(p,d); n++; });
+    const done=(p.executed||[]).concat(p.skipped||[]).concat(p.missed||[]);
+    dueDates(p).forEach(d=>{
+      if(done.includes(d)) return;
+      if(S.pending.some(x=>x.planId===p.id && x.date===d)) return;   // 已生成过待确认
+      const h=S.holdings.find(x=>x.id===p.assetId);
+      const amt=Number(p.amount)||0;
+      const nav=(h&&priceOf(h)>0)?priceOf(h):0;
+      S.pending.push({id:'pd'+Date.now()+Math.random().toString(36).slice(2,6),
+        planId:p.id, planName:p.name||'定投', date:d, amount:amt,
+        assetId:p.assetId||'', assetName:h?h.name:(p.assetName||''),
+        fromId:p.fromId||'', fromName:p.fromName||'新增资金',
+        nav:nav, estShares: nav>0 ? amt/nav : amt, createdAt: today(), status:'pending'});
+      n++;
+    });
   });
-  if(n){
-    save(); render();
-    flash('已补记 '+n+' 期定投（流水可撤销）。份额按当前净值折算——补的是过去日期的话，和银行实际扣款份额可能有差，建议打开流水核对');
-  }
-  else if(!quiet){ flash('没有到期的定投'); }
-  const st=document.getElementById('planSyncState');
-  if(st) st.textContent = n? ('本次补记 '+n+' 期，已写入流水与持仓') : '所有到期期次都已入账';
+  if(n && !quiet) flash('发现 '+n+' 期定投到期待确认——核对后再入账');
   return n;
+}
+function pendingList(){ return (S.pending||[]).filter(x=>x.status==='pending'); }
+// 确认一批待确认：逐笔用界面上填的实际金额/实际份额（缺省用计划值）→ 写流水 + 改持仓
+function confirmPend(ids){
+  const list=(S.pending||[]).filter(x=>ids.includes(x.id)&&x.status==='pending');
+  if(!list.length) return;
+  let ok=0;
+  list.forEach(it=>{
+    const p=S.plans.find(x=>x.id===it.planId);
+    const amtEl=document.getElementById('pdAmt_'+it.id), shEl=document.getElementById('pdSh_'+it.id);
+    const rawAmt = amtEl ? String(amtEl.value).trim() : '';
+    const amt = rawAmt==='' ? it.amount : Math.max(0, Number(rawAmt)||0);
+    const shInput = shEl ? String(shEl.value).trim() : '';
+    let shares = shInput!=='' ? Math.max(0, Number(shInput)||0) : (it.nav>0 ? amt/it.nav : amt);
+    if(amt<=0){ it.status='missed'; it.reason='金额为 0，按未执行处理'; return; }
+    const h=S.holdings.find(x=>x.id===it.assetId);
+    const from=S.holdings.find(x=>x.id===it.fromId);
+    const prevQty=h?(Number(h.qty)||0):null;
+    const fromPrev=from?(Number(from.qty)||0):null;
+    if(h) h.qty=prevQty+shares;
+    if(from) from.qty=fromPrev-amt;   // 现金类：数量即金额
+    S.transactions.push({id:'tp'+Date.now()+Math.random().toString(36).slice(2,6),
+      date:it.date, type:'定投', account: from?(from.account||''):'新增资金', accountTo:'', amount:amt,
+      assetId:it.assetId, assetName:it.assetName, note:(it.planName)+' 确认入账', planId:it.planId,
+      external:!from, prevQty:prevQty, fromId:it.fromId, fromPrevQty:fromPrev, newQty:h?h.qty:null,
+      shares:shares, pendId:it.id});
+    if(p){ p.executed=p.executed||[]; p.executed.push(it.date); }
+    it.status='confirmed'; it.realAmount=amt; it.realShares=shares;
+    ok++;
+  });
+  if(ok){ save(); render(); flash('已确认 '+ok+' 期，写入流水与持仓'); }
+  else { save(); render(); }
+}
+function settlePend(id, kind){   // kind: 'skip'=银行没扣 / 'missed'=失误漏扣
+  const it=S.pending.find(x=>x.id===id); if(!it||it.status!=='pending') return;
+  it.status = kind==='missed' ? 'missed' : 'skipped';
+  it.reason = kind==='missed' ? '失误漏扣，未执行' : '本期未扣款';
+  const p=S.plans.find(x=>x.id===it.planId);
+  const field = kind==='missed' ? 'missed' : 'skipped';
+  if(p){ p[field]=p[field]||[]; p[field].push(it.date); }
+  save(); render(); flash(kind==='missed'?'已标记未执行':'已跳过本期，不动账');
+}
+function renderPending(){
+  const box=document.getElementById('pendBox'); if(!box) return;
+  const list=pendingList();
+  const cnt=document.getElementById('pendCount');
+  if(cnt) cnt.textContent = list.length;
+  if(!list.length){
+    box.innerHTML='<div class="muted">没有待确认的定投期次。到期未扣款的期次会出现在这里，<b>核对后才进账目</b>。</div>';
+    return;
+  }
+  let h='<div class="muted" style="margin-bottom:8px">下面是到期应扣但还没核实的期次。<b>确认后才写入流水和持仓</b>；实际金额/份额可按银行账单改（份额=本期新增份额）。</div>';
+  h+='<div style="overflow-x:auto"><table><tr><th></th><th>计划</th><th>扣款日</th><th class="num">计划金额</th><th>参考净值</th><th class="num">实际金额</th><th class="num">实际份额</th><th></th></tr>';
+  list.forEach(it=>{
+    h+=`<tr>
+      <td style="width:26px"><input type="checkbox" class="pdck" value="${it.id}" checked style="width:auto"></td>
+      <td>${esc(it.planName)}<br><span class="muted">${esc(it.assetName)}</span></td>
+      <td>${it.date}</td>
+      <td class="num">${money(it.amount)}</td>
+      <td>${it.nav>0?('¥'+it.nav.toFixed(4)+'<br><span class="muted">约 '+it.estShares.toFixed(2)+' 份</span>'):'<span class="muted">无行情，按金额=份额</span>'}</td>
+      <td class="num"><input type="number" step="any" id="pdAmt_${it.id}" value="${it.amount}" style="width:100px"></td>
+      <td class="num"><input type="number" step="any" id="pdSh_${it.id}" value="${Number(it.estShares.toFixed(4))}" style="width:100px"></td>
+      <td style="white-space:nowrap">
+        <button class="sm" onclick="confirmPend(['${it.id}'])">确认</button>
+        <button class="sm ghost" onclick="settlePend('${it.id}','skip')">跳过</button>
+        <button class="sm danger" onclick="settlePend('${it.id}','missed')">未执行</button>
+      </td></tr>`;
+  });
+  h+='</table></div>';
+  h+='<div class="row" style="margin-top:10px"><button onclick="batchConfirm()">确认勾选期次</button>'+
+     '<span class="muted" style="flex:3">「跳过」= 银行没扣；「未执行」= 失误漏扣。两者都不动账，只留记录。</span></div>';
+  box.innerHTML=h;
+}
+function batchConfirm(){
+  const ids=Array.from(document.querySelectorAll('.pdck:checked')).map(x=>x.value);
+  if(!ids.length){ flash('先勾选要确认的期次'); return; }
+  confirmPend(ids);
 }
 function renderPlans(){
   const t=document.getElementById('planTable'), box=document.getElementById('planHome'), card=document.getElementById('planCard');
@@ -922,7 +1195,7 @@ function renderPlans(){
   const list=S.plans||[];
   if(card) card.classList.toggle('hidden', !list.length);
   if(!list.length){ t.innerHTML='<tr><td class="muted">还没有定投计划，在下面新增一个</td></tr>'; if(box) box.innerHTML=''; return; }
-  let h='<tr><th>计划</th><th>买入标的</th><th>扣款</th><th class="num">每期</th><th>频率</th><th>下次扣款</th><th class="num">已投</th><th>状态</th><th></th></tr>';
+  let h='<tr><th>计划</th><th>买入标的</th><th>扣款</th><th class="num">每期</th><th>频率</th><th>下次扣款（计划）</th><th class="num">已确认</th><th>状态</th><th></th></tr>';
   list.forEach(p=>{
     const mine=S.transactions.filter(x=>x.planId===p.id);
     const invest=mine.reduce((a,x)=>a+(Number(x.amount)||0),0);
@@ -942,12 +1215,14 @@ function renderPlans(){
     const act=list.filter(p=>p.status==='active');
     const monthStart=today().slice(0,8)+'01';
     const mInvest=S.transactions.filter(x=>x.type==='定投' && x.date>=monthStart).reduce((a,x)=>a+(Number(x.amount)||0),0);
-    const upcoming=act.reduce((a,p)=>a+dueDates(p, addDaysStr(today(),30)).filter(d=>d>=today() && !(p.executed||[]).concat(p.skipped||[]).includes(d)).length*(Number(p.amount)||0),0);
+    const pendN=pendingList().length;
+    const upcoming=act.reduce((a,p)=>a+dueDates(p, addDaysStr(today(),30)).filter(d=>d>=today() && !(p.executed||[]).concat(p.skipped||[]).concat(p.missed||[]).includes(d)).length*(Number(p.amount)||0),0);
     let bx=`<div class="row"><div><span class="muted">进行中计划</span><div>${act.length} 个</div></div>
-      <div><span class="muted">本月已投</span><div>${money(mInvest)}</div></div>
+      <div><span class="muted">本月已确认入账</span><div>${money(mInvest)}</div></div>
+      <div><span class="muted">待确认</span><div>${pendN?('<span class="tag warn">'+pendN+' 期</span>'):'0'}</div></div>
       <div><span class="muted">未来 30 天待投</span><div>${money(upcoming)}</div></div></div>`;
     const soon=act.map(p=>({p:p, d:nextDue(p)})).filter(x=>x.d && x.d<=addDaysStr(today(),7)).sort((a,b)=>a.d.localeCompare(b.d));
-    bx += soon.length ? ('<ul class="tight">'+soon.map(x=>`<li><span class="tag info">${x.d}</span> ${esc(x.p.name||'定投')} 扣款 ${money(x.p.amount)}（${esc(x.p.fromName||'新增资金')}）</li>`).join('')+'</ul>')
+    bx += soon.length ? ('<div class="muted" style="margin:6px 0 2px">未来 7 天到期（<b>计划，非已执行</b>）</div><ul class="tight">'+soon.map(x=>`<li><span class="tag info">${x.d}</span> ${esc(x.p.name||'定投')} 扣款 ${money(x.p.amount)}（${esc(x.p.fromName||'新增资金')}）</li>`).join('')+'</ul>')
       : '<div class="muted" style="margin-top:6px">未来 7 天没有到期定投。</div>';
     box.innerHTML=bx;
   }
@@ -977,13 +1252,15 @@ function addPlan(){
     assetId:assetId, assetName:h?h.name:'', fromId:fromId||'', fromName: from? (from.account||'') : '新增资金',
     amount:amt, freq:freq, day:day, start:start, end:document.getElementById('pEnd').value||'',
     status:'active', executed:[], skipped:[]};
-  S.plans.push(p); syncPlans(true); save(); render(); flash('已添加，到期自动入账');
+  S.plans.push(p); genPending(true); save(); render(); flash('计划已添加，到期会先出现在「待确认」里');
 }
 function togglePlan(id){ const p=S.plans.find(x=>x.id===id); if(!p) return;
   p.status = p.status==='active' ? 'paused' : 'active'; save(); render(); flash(p.status==='active'?'已继续':'已暂停'); }
 function skipPlan(id){ const p=S.plans.find(x=>x.id===id); if(!p) return;
   const d=nextDue(p); if(!d){ flash('没有待执行的期次'); return; }
   if(!confirm('跳过 '+d+' 这一期？不会记流水、不动持仓。')) return;
+  const it=(S.pending||[]).find(x=>x.planId===p.id && x.date===d && x.status==='pending');
+  if(it) it.status='skipped';
   p.skipped=p.skipped||[]; p.skipped.push(d); save(); render(); flash('已跳过'); }
 function delPlan(id){ const p=S.plans.find(x=>x.id===id); if(!p) return;
   if(!confirm('删除计划「'+(p.name||'定投')+'」？已产生的流水和持仓变化会保留（可在记账页撤销）。')) return;
@@ -1043,7 +1320,7 @@ function normalize(s){
   s.params = Object.assign({}, DEFAULTS.params, s.params||{});
   s.params.fx = Object.assign({}, DEFAULTS.params.fx, (s.params.fx||{}));
   s.meta = Object.assign({}, DEFAULTS.meta, s.meta||{});
-  ['holdings','transactions','snapshots','plans'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  ['holdings','transactions','snapshots','plans','pending'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
   if(!s.quotes) s.quotes={};
   if(!s.targets) s.targets=Object.assign({}, DEFAULTS.targets);
   return s;
@@ -1279,7 +1556,7 @@ function loadDemo(){
      amount:500, freq:'weekly', day:3, start:day(-28), end:'', status:'active', executed:[], skipped:[]}
   ];
   S.meta.demo=true;                            // 打标记：这是假数据，同步时让位给真实数据
-  save(); syncPlans(true); snapshotDaily(); render(); refreshPlanSelects(); flash('已载入示例数据（含 2 个定投计划，到期期次已自动入账）');
+  save(); genPending(true); snapshotDaily(); render(); refreshPlanSelects(); flash('已载入示例数据（含 2 个定投计划，到期期次会进入待确认）');
 }
 
 /* ============ 启动 ============ */
@@ -1345,7 +1622,7 @@ tryLoadEnc();                                // 页面自带加密资产文件�
 // 旧方案（令牌+私有仓库自动同步）已彻底停用：不再 loadSync / autoSync，
 // 否则解锁前的那一下保存又会把本机数据传回旧仓库（之前示例数据就是这么漏上去的）
 afterSync();
-function afterSync(){ syncPlans(true); snapshotDaily(); render(); }
+function afterSync(){ genPending(true); renderPending(); snapshotDaily(); render(); }
 // 上线后：若同目录存在 data/quotes.json（由定时任务每日写入），自动读取
 if(location.protocol.indexOf('http')===0){
   fetch('data/quotes.json').then(r=>r.ok?r.json():null).then(j=>{
