@@ -87,6 +87,7 @@ ul.tight li{margin-bottom:3px}
   <button data-tab="hold">持仓</button>
   <button data-tab="ledger">记账</button>
   <button data-tab="plan">定投</button>
+  <button data-tab="cal">日历</button>
   <button data-tab="recon">对账</button>
   <button data-tab="set">设置</button>
 </nav>
@@ -144,8 +145,16 @@ ul.tight li{margin-bottom:3px}
 
   <div class="split">
     <div class="card">
-      <h2>钱押在哪（资产大类）</h2>
+      <h2>钱押在哪</h2>
+      <div class="row" style="margin-bottom:10px">
+        <button class="sm" id="allocBtnCat" onclick="switchAlloc('cat')">资产大类</button>
+        <button class="sm ghost" id="allocBtnStyle" onclick="switchAlloc('style')">投资风格 · 基金ETF 内</button>
+        <button class="sm ghost" id="allocBtnSector" onclick="switchAlloc('sector')">行业 · 基金ETF 内</button>
+      </div>
       <div id="catTable"></div>
+      <div id="styleTable" class="hidden"></div>
+      <div id="sectorTable" class="hidden"></div>
+      <div class="muted" style="margin-top:8px">系统只比较「实际配置 vs 你自己设的目标」的偏差，不判断哪种配置更优。想要推荐比例是另一个需求，这个下钻不假装能给。</div>
     </div>
     <div class="card">
       <h2>钱放在哪（账户/平台）</h2>
@@ -318,6 +327,20 @@ ul.tight li{margin-bottom:3px}
   </div>
 </section>
 
+<!-- ============ 日历（两视图） ============ -->
+<section id="tab-cal" class="hidden">
+  <div class="card">
+    <h2>视图一 · 计划与待办</h2>
+    <div class="muted">只有确定日期的事项。到期未确认的定投永远在顶部待办——核对后才进账目。</div>
+    <div id="calTodo" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <h2>视图二 · 纪律触发条件</h2>
+    <div class="muted">这是<b>条件规则，不是日程</b>：没有发生日期、系统不预测行情、没有推送，全部为页面内提醒。到线了，本页和首页会同时告诉你。</div>
+    <div id="calTrigger" style="margin-top:8px"></div>
+  </div>
+</section>
+
 <!-- ============ 对账 ============ -->
 <section id="tab-recon" class="hidden">
   <div class="card">
@@ -341,6 +364,12 @@ ul.tight li{margin-bottom:3px}
     <h2>目标资产配置比例</h2>
     <div id="targetBox"></div>
     <div class="muted" id="targetSum"></div>
+  </div>
+  <div class="card">
+    <h2>风格目标（基金ETF 内部）</h2>
+    <div class="muted" style="margin-bottom:8px">只约束基金ETF 这一类内部的风格结构：实际占比 vs 你设的目标，越界同样进首页「需要处理」。一句话承诺：<b>系统只比偏差，不判断哪种配置更优。</b></div>
+    <div id="styleTargetBox"></div>
+    <div class="muted" id="styleTargetSum"></div>
   </div>
   <div class="card">
     <h2>系统参数</h2>
@@ -427,9 +456,10 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-19b';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-19c';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [], pending: [],
+  styleTargets: {'宽基':0.40,'红利':0.15,'成长':0.10,'债':0,'现金':0,'行业主题':0.35},
   targets: {'现金存款':0.10,'固收理财':0.30,'基金ETF':0.30,'股票':0.25,'另类（黄金等）':0.05,'其他':0},
   params: {benchmark:'沪深300', benchChange:0, drawdown:5, devAbs:5, devRel:50, market:'中性', fx:{CNY:1, USD:7.10, HKD:0.92}},
   meta: {lastReconcile:'', quoteDate:'', lastSnapshot:'', plan:'稳健型（权益55%）', planBase:'稳健型（权益55%）', planDesc:''}
@@ -448,6 +478,7 @@ function load(){
     ['holdings','transactions','snapshots','plans','pending'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
     if(!s.quotes) s.quotes = {};
     if(!s.targets) s.targets = Object.assign({}, DEFAULTS.targets);
+    s.styleTargets = Object.assign({}, DEFAULTS.styleTargets, s.styleTargets || {});
     return s;
   }catch(e){ return JSON.parse(JSON.stringify(DEFAULTS)); }
 }
@@ -579,9 +610,9 @@ function updateHdsub(){
 }
 function render(){
   const c = compute();
-  renderStatus(c); renderKPI(c); renderActions(c); renderCat(c); renderAcc(c);
-  renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets();
-  renderPlans(); renderPending(); renderTimeline('home'); renderTimeline('all');
+  renderStatus(c); renderKPI(c); renderActions(c); renderCat(c); renderStyle(c); renderSector(c); renderAcc(c);
+  renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderStyleTargets();
+  renderPlans(); renderPending(); renderCal(); renderTimeline('home'); renderTimeline('all');
   document.getElementById('mktVal').textContent = S.params.market || '—';
   updateHdsub();
   const es=document.getElementById('emptyStart'); if(es) es.classList.toggle('hidden', S.holdings.length>0);
@@ -644,6 +675,13 @@ function renderStatus(c){
     btn:'怎么做', fn:'scrollToCard(\'actionCard\')'}));
   if(reconDays!=null && reconDays>7) acts.push({cls:'warn', tag:'超 7 天未对账',
     text:'上次对账 '+reconDays+' 天前，该校准一次了', btn:'去对账', fn:'goRecon()'});
+  const sd=styleDeviation(c);
+  sd.breaching.slice(0,2).forEach(r=>{
+    const dir=r.d>0?'超配':'低配';
+    acts.push({cls:r.level==='红线'?'act':'warn', tag:'风格'+r.level,
+      text:'基金ETF 内「'+esc(r.key)+'」'+dir+' '+pct(Math.abs(r.d),1)+'（实际 '+pct(r.actual,1)+' / 目标 '+pct(r.target,0)+'），约 '+money(Math.abs(r.amount)),
+      btn:'去调整目标', fn:"switchAlloc('style')"});
+  });
   issues.slice(0,2).forEach(x=>acts.push({cls:'act', tag:'数据异常',
     text:esc(x)+'，账目可能失真', btn:'去检查', fn:'goHold()'}));
   if(acts.length){
@@ -735,6 +773,86 @@ function snapStats(){
   return {maxNet:maxNet, mdd:mdd, n:sn.length, from:sn[0].date, to:sn[sn.length-1].date,
           gap:gap, gapAt:gapAt};
 }
+/* ============ 日历两视图 ============ */
+function renderCal(){
+  const pend=pendingList();
+  let h='';
+  if(pend.length){
+    h+='<div class="box-warn" style="margin-bottom:10px"><b>待确认 '+pend.length+' 期</b>（约 '+
+       money(pend.reduce((a,x)=>a+x.amount,0))+'） <button class="sm" onclick="goPlan()">去核对</button></div>';
+  }
+  // 未来 90 天定投扣款日（确定日期的事项）
+  const t=today(), horizon=addDaysStr(t,90);
+  const items=[];
+  S.plans.filter(p=>p.status==='active').forEach(p=>{
+    const done=(p.executed||[]).concat(p.skipped||[]).concat(p.missed||[]);
+    dueDates(p, horizon).forEach(d=>{
+      if(d>=t && !done.includes(d) && !pend.some(x=>x.planId===p.id && x.date===d))
+        items.push({d:d, p:p});
+    });
+  });
+  items.sort((a,b)=>a.d.localeCompare(b.d));
+  h += items.length
+    ? ('<table><tr><th>日期</th><th>计划</th><th class="num">金额</th><th>扣款</th><th>状态</th></tr>'+
+       items.map(x=>`<tr><td>${x.d}</td><td>${esc(x.p.name||'定投')}</td><td class="num">${money(x.p.amount)}</td>
+         <td>${esc(x.p.fromName||'新增资金')}</td><td><span class="tag info">计划，未执行</span></td></tr>`).join('')+'</table>')
+    : '<div class="muted">未来 90 天没有计划扣款。</div>';
+  const lastR=S.meta.lastReconcile;
+  h += lastR
+    ? '<div class="muted" style="margin-top:8px">上次对账 '+esc(lastR)+'，建议每 7 天一次；下次建议 '+addDaysStr(lastR,7)+'（超 7 天未对账会进首页「需要处理」）。</div>'
+    : '<div class="muted" style="margin-top:8px">还没对过账。第一次建议本周做一次，之后每 7 天一次。</div>';
+  const todo=document.getElementById('calTodo'); if(todo) todo.innerHTML=h;
+  // 视图二：纪律触发条件（条件规则，非日程）
+  const rules=triggerRules();
+  let g='<table><tr><th>对象</th><th>触发条件</th><th>状态</th></tr>';
+  rules.forEach(r=>{
+    const cls=r.hit?'act':'';
+    g+=`<tr><td>${esc(r.dim)}「${esc(r.key)}」</td><td>${r.text}</td>
+      <td>${r.hit?'<span class="tag act">已触发</span>':'<span class="tag">未到线</span>'}</td></tr>`;
+  });
+  g+='</table>';
+  g+='<div class="box-tip" style="margin-top:10px">怎么读：「若 X 占比升至 Y%（还差 Z ≈ ¥W）→ 触发超配提醒（需减少约 ¥V）」。'+
+     '<b>这是纪律条件，不是预测</b>——市场到不到得了这个位置，系统不知道；到了，页面提醒你按既定纪律行动。</div>';
+  const tg=document.getElementById('calTrigger'); if(tg) tg.innerHTML=g;
+}
+function triggerRules(){
+  const c=compute(); const out=[];
+  const total=c.assets>0?c.assets:1;
+  const devAbs=(Number(S.params.devAbs)||5)/100;
+  const line=Math.max(devAbs, 0.10);          // 触发线：偏离阈值与 10 个百分点红线取大
+  const rules=[];
+  const gen=(dim, key, actual, target, baseTotal)=>{
+    if(target<=0 && actual<=0.01) return;    // 两者都近零的维度不制造噪音
+    const up=target+line, down=target-line;
+    // 已触发：现在的实际占比已越线，建议按当前偏离量调整
+    if(actual>=up){
+      rules.push({dim:dim, key:key, hit:true,
+        text:'当前 '+pct(actual,1)+' 已越过 '+pct(up,1)+'，建议调整约 '+money((actual-target)*baseTotal)+'（超配方向）'});
+    }else if(actual<=down && down>=0){
+      rules.push({dim:dim, key:key, hit:true,
+        text:'当前 '+pct(actual,1)+' 已低于 '+pct(down,1)+'，建议调整约 '+money((target-actual)*baseTotal)+'（低配方向）'});
+    }else{
+      // 未到线：写清「到线后要调多少」——从触发线回到目标的量，不是现在到线的距离
+      rules.push({dim:dim, key:key, hit:false,
+        text:'若占比升至 '+pct(up,1)+'（现 '+pct(actual,1)+'，还差 '+pct(up-actual,1)+' ≈ '+money((up-actual)*baseTotal)+'）→ 触发超配提醒，届时需减少约 '+money((up-target)*baseTotal)});
+      if(target>0 && down>0){
+        rules.push({dim:dim, key:key, hit:false,
+          text:'若占比降至 '+pct(down,1)+'（现 '+pct(actual,1)+'，还差 '+pct(actual-down,1)+' ≈ '+money((actual-down)*baseTotal)+'）→ 触发低配提醒，届时需补入约 '+money((target-down)*baseTotal)});
+      }
+    }
+  };
+  CATS.filter(x=>x!=='负债').forEach(cat=>{
+    gen('大类', cat, (c.byCat[cat]||0)/total, Number(S.targets[cat])||0, total);
+  });
+  const b=etfBreakdown(c);
+  if(b.total>0){
+    Object.keys(S.styleTargets||{}).concat(Object.keys(b.byStyle)).forEach(k=>{
+      const target=Number(S.styleTargets[k])||0;
+      if(!rules.some(r=>r.key===k)) gen('风格', k, (b.byStyle[k]||0)/b.total, target, b.total);
+    });
+  }
+  return rules.filter(r=>r.hit).concat(rules.filter(r=>!r.hit));   // 已触发的排前面
+}
 function renderTimeline(scope){
   const box=document.getElementById(scope==='home'?'timelineHome':'timelineAll');
   if(!box) return;
@@ -783,6 +901,56 @@ function renderTimeline(scope){
   box.innerHTML=h;
 }
 /* ============ 偏离明细 ============ */
+/* ============ 配置三维度：大类 / 风格 / 行业（同维度内汇总 100%，跨维度不互斥） ============ */
+const STYLE_TAGS = ['宽基','红利','成长','债','现金'];
+const SECTOR_TAGS = ['金融','科技','制造','消费','医药','黄金','个股'];
+// 主标签规则：一个 tag 只在一个维度里解释，不做成分穿透、不猜测
+function styleOf(h){
+  const t=(h.tag||'').trim();
+  if(STYLE_TAGS.includes(t)) return t;
+  if(SECTOR_TAGS.includes(t)) return '行业主题';
+  return t || '未分类';
+}
+function sectorOf(h){
+  const t=(h.tag||'').trim();
+  if(SECTOR_TAGS.includes(t) && t!=='个股') return t;
+  if(t==='个股') return '个股';
+  return '宽基/非行业';
+}
+// 基金ETF 内部的风格 / 行业分布（下钻对象：基金ETF 市值总额）
+function etfBreakdown(c){
+  const list=S.holdings.filter(h=>h.cat==='基金ETF');
+  const total=list.reduce((a,h)=>a+valueOf(h),0);
+  const byStyle={}, bySector={};
+  list.forEach(h=>{
+    const v=valueOf(h);
+    byStyle[styleOf(h)]=(byStyle[styleOf(h)]||0)+v;
+    bySector[sectorOf(h)]=(bySector[sectorOf(h)]||0)+v;
+  });
+  return {total:total, byStyle:byStyle, bySector:bySector, n:list.length};
+}
+// 风格偏离：只在基金ETF 内部比较 实际 vs 用户自设目标（不判断哪种配置更优）
+function styleDeviation(c){
+  const b=etfBreakdown(c);
+  if(b.total<=0) return {total:0, rows:[], breaching:[]};
+  const devAbs=(Number(S.params.devAbs)||5)/100, devRel=(Number(S.params.devRel)||50)/100;
+  const keys=Object.keys(S.styleTargets||{});
+  const seen={};
+  Object.keys(b.byStyle).forEach(k=>{ if(!keys.includes(k)) keys.push(k); seen[k]=true; });
+  const rows=[], breaching=[];
+  keys.forEach(k=>{
+    const actual=(b.byStyle[k]||0)/b.total, target=Number(S.styleTargets[k])||0;
+    const d=actual-target, ad=Math.abs(d), rd=target>0?ad/target:(actual>0?1:0);
+    let level=null;
+    if(ad>=0.10) level='红线';
+    else if(ad>=devAbs || rd>=devRel) level='行动';
+    else if(ad>=devAbs*0.6 || rd>=devRel*0.4) level='提醒';
+    rows.push({key:k, actual:actual, target:target, d:d, level:level, amount:d*b.total, value:(b.byStyle[k]||0)});
+    if(level==='红线'||level==='行动') breaching.push(rows[rows.length-1]);
+  });
+  rows.sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+  return {total:b.total, rows:rows, breaching:breaching};
+}
 function renderActions(c){
   const devs = deviation(c), conc = concentration(c), box=document.getElementById('actions');
   const card=document.getElementById('actionCard');
@@ -807,6 +975,18 @@ function renderActions(c){
   if(conc.coverage < 0.6) h += `<div class="muted" style="margin-top:6px">标签覆盖率仅 ${pct(conc.coverage,0)}，行业/地区集中度可能被低估（可在持仓里补标签）。</div>`;
   box.innerHTML = h;
 }
+/* ============ 配置下钻：大类 / 风格 / 行业 ============ */
+let ALLOC_DIM = 'cat';
+function switchAlloc(dim){
+  ALLOC_DIM = dim;
+  ['cat','style','sector'].forEach(d=>{
+    const btn=document.getElementById('allocBtn'+d.charAt(0).toUpperCase()+d.slice(1));
+    const box=document.getElementById(d+'Table');
+    if(box) box.classList.toggle('hidden', d!==dim);
+    if(btn) btn.classList.toggle('ghost', d!==dim);
+  });
+  render();
+}
 function renderCat(c){
   const total = c.assets>0?c.assets:1;
   let h = '<table><tr><th>大类</th><th class="num">市值</th><th class="num">实际/目标</th><th style="width:32%">占比</th></tr>';
@@ -821,6 +1001,40 @@ function renderCat(c){
   if(c.debt>0) h += `<div class="muted" style="margin-top:6px">负债 ${money(c.debt)}（已从净资产中扣除）</div>`;
   h += `<div class="muted" style="margin-top:6px">目标方案：<b>${esc(S.meta.plan||'稳健型（权益55%）')}</b> · <a href="#" onclick="goSet();return false;">切换方案</a></div>`;
   document.getElementById('catTable').innerHTML = h;
+}
+function renderStyle(c){
+  const box=document.getElementById('styleTable'); if(!box) return;
+  const b=etfBreakdown(c);
+  if(b.total<=0){ box.innerHTML='<div class="muted">还没有基金ETF 持仓</div>'; return; }
+  const sd=styleDeviation(c);
+  let h=`<div class="muted" style="margin-bottom:6px">基金ETF 共 ${b.n} 只、${money(b.total)}——下面是它的内部结构</div>`;
+  h+='<table><tr><th>风格</th><th class="num">市值</th><th class="num">实际/目标</th><th style="width:32%">占比</th></tr>';
+  sd.rows.forEach(r=>{
+    const cls=r.level==='红线'?'act':(r.level==='行动'?'warn':'');
+    h+=`<tr><td>${esc(r.key)}${r.level?(' <span class="tag '+cls+'">'+r.level+'</span>'):''}</td>
+      <td class="num">${money(r.value)}</td><td class="num">${pct(r.actual,1)} / ${pct(r.target,0)}</td>
+      <td><div class="bar"><span style="width:${Math.min(Math.round(r.actual*100),100)}%"></span></div>
+      <div class="muted">目标线 ${Math.round(r.target*100)}%</div></td></tr>`;
+  });
+  h+='</table>';
+  if(sd.breaching.length) h+=`<div class="muted" style="margin-top:6px">越界项已同步进首页「需要处理」。</div>`;
+  h+=`<div class="muted" style="margin-top:6px">目标是你在「设置 → 风格目标」里定的。</div>`;
+  box.innerHTML=h;
+}
+function renderSector(c){
+  const box=document.getElementById('sectorTable'); if(!box) return;
+  const b=etfBreakdown(c);
+  if(b.total<=0){ box.innerHTML='<div class="muted">还没有基金ETF 持仓</div>'; return; }
+  let h='<table><tr><th>行业</th><th class="num">市值</th><th class="num">占比</th><th style="width:32%"></th></tr>';
+  Object.keys(b.bySector).sort((x,y)=>b.bySector[y]-b.bySector[x]).forEach(k=>{
+    const v=b.bySector[k], a=v/b.total;
+    h+=`<tr><td>${esc(k)}${a>0.35?' <span class="tag act">超 35%</span>':''}</td>
+      <td class="num">${money(v)}</td><td class="num">${pct(a,1)}</td>
+      <td><div class="bar"><span style="width:${Math.min(Math.round(a*100),100)}%"></span></div></td></tr>`;
+  });
+  h+='</table>';
+  h+=`<div class="muted" style="margin-top:6px">主标签口径：一只基金只按它的<b>主标签</b>归一个行业，不做成分穿透——宁可简单可校验，也不复杂而错。</div>`;
+  box.innerHTML=h;
 }
 function renderAcc(c){
   const rows = Object.keys(c.byAcc).map(k=>({k, v:c.byAcc[k]})).sort((a,b)=>b.v-a.v);
@@ -962,6 +1176,20 @@ function resetToPlan(){
   const base=PLANS.find(p=>p.name===S.meta.planBase);
   if(!base){ flash('当前不是内置方案，直接改下面的数字即可'); return; }
   applyPlan(base.key);
+}
+function renderStyleTargets(){
+  const box=document.getElementById('styleTargetBox'); if(!box) return;
+  let h='<table><tr><th>风格</th><th class="num">目标比例</th></tr>';
+  Object.keys(S.styleTargets).forEach(k=>{
+    h+=`<tr><td>${esc(k)}</td><td class="num"><input type="number" step="any" value="${(Number(S.styleTargets[k])||0)*100}" onchange="setStyleTarget('${k}',this.value)" style="width:90px"> %</td></tr>`;
+  });
+  h+='</table>'; box.innerHTML=h;
+  const sum=Object.keys(S.styleTargets).reduce((a,k)=>a+(Number(S.styleTargets[k])||0),0);
+  document.getElementById('styleTargetSum').textContent='当前合计 '+pct(sum,0)+'（不等于 100% 也能用，系统自动归一化）';
+}
+function setStyleTarget(k, v){
+  S.styleTargets[k]=(Number(v)||0)/100;
+  save(); renderStyleTargets(); const c=compute(); renderStyle(c); renderStatus(c); renderKPI(c); flash('风格目标已更新');
 }
 
 /* ============ 操作 ============ */
@@ -1323,6 +1551,7 @@ function normalize(s){
   ['holdings','transactions','snapshots','plans','pending'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
   if(!s.quotes) s.quotes={};
   if(!s.targets) s.targets=Object.assign({}, DEFAULTS.targets);
+  s.styleTargets = Object.assign({}, DEFAULTS.styleTargets, s.styleTargets||{});
   return s;
 }
 async function deriveKey(pass, salt){
@@ -1605,7 +1834,7 @@ document.getElementById('nav').addEventListener('click', e=>{
   const b=e.target.closest('button'); if(!b) return;
   TAB=b.dataset.tab;
   document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on', x===b));
-  ['home','hold','ledger','plan','recon','set'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==TAB));
+  ['home','hold','ledger','plan','cal','recon','set'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==TAB));
   if(TAB==='ledger') refreshAssetSelect();
   if(TAB==='plan') refreshPlanSelects();
 });
