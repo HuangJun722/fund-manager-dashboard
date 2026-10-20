@@ -121,6 +121,20 @@ ul.tight li{margin-bottom:3px}
       <button class="ghost" onclick="goHold('pasteBox');">③ 粘贴 Excel 数据导入</button>
     </div>
   </div>
+  <div class="card" id="overviewCard">
+    <div class="row" style="align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div>
+        <div class="muted" style="font-size:13px">我的全部家当（投资的按最新市值算）</div>
+        <div id="ovNet" style="font-size:34px;font-weight:500;line-height:1.25"></div>
+        <div class="muted" style="font-size:12px;margin-top:2px" id="ovTrust"></div>
+      </div>
+      <div style="text-align:right">
+        <div id="ovGain" style="font-size:15px"></div>
+        <div class="muted" style="font-size:12px;margin-top:2px" id="ovGainSub"></div>
+      </div>
+    </div>
+    <div id="ovAction" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"></div>
+  </div>
   <div class="card" id="statusCard">
     <div class="row" style="align-items:flex-start">
       <div style="flex:3;min-width:220px">
@@ -130,11 +144,10 @@ ul.tight li{margin-bottom:3px}
       <div style="flex:2;min-width:180px" id="statusTrust" class="muted"></div>
     </div>
   </div>
-  <div class="grid kpis" id="kpis"></div>
 
   <div class="split">
     <div class="card">
-      <h2>钱押在哪</h2>
+      <h2>我的钱押在哪</h2>
       <div class="row" style="margin-bottom:10px">
         <button class="sm" id="allocBtnCat" onclick="switchAlloc('cat')">资产大类</button>
         <button class="sm ghost" id="allocBtnStyle" onclick="switchAlloc('style')">投资风格 · 基金ETF 内</button>
@@ -146,13 +159,14 @@ ul.tight li{margin-bottom:3px}
       <div class="muted" style="margin-top:8px">系统只比较「实际配置 vs 你自己设的目标」的偏差，不判断哪种配置更优。想要推荐比例是另一个需求，这个下钻不假装能给。</div>
     </div>
     <div class="card">
-      <h2>钱放在哪（账户/平台）</h2>
+      <h2>我的钱放在哪（账户/平台）</h2>
       <div id="accTable"></div>
     </div>
   </div>
 
   <details class="card" id="moreHome">
-    <summary>更多：定投摘要 · 资产时间线 · 净资产走势 · 集中度与数据健康</summary>
+    <summary>更多：关键数字 · 定投摘要 · 资产时间线 · 净资产走势 · 集中度与数据健康</summary>
+    <div class="grid kpis" id="kpis"></div>
     <div class="card" id="planCard">
       <h2>定投（到期先待确认，核对后才入账）</h2>
       <div id="planHome"></div>
@@ -179,7 +193,7 @@ ul.tight li{margin-bottom:3px}
 <!-- ============ 持仓 ============ -->
 <section id="tab-hold" class="hidden">
   <div class="card">
-    <h2>导入初始台账</h2>
+    <h2>第一次，把 Excel 粘贴进来</h2>
     <div class="muted">方式一：在 Excel/WPS 里选中「持仓清单」的数据区域（含表头）复制，粘贴到下面 → 解析导入。方式二：选 CSV 文件。方式三：在下方表格手工新增。</div>
     <textarea id="pasteBox" placeholder="账户/平台	资产大类	名称	代码	标签	币种	数量/份额	成本单价	备注"></textarea>
     <div class="row" style="margin-top:8px">
@@ -191,7 +205,7 @@ ul.tight li{margin-bottom:3px}
   </div>
 
   <div class="card">
-    <h2>持仓明细（可直接改数量 / 价格 / 成本）</h2>
+    <h2>我的持仓（数量、价格、成本都能直接改）</h2>
     <div style="overflow-x:auto"><table id="holdTable"></table></div>
     <div class="muted" style="margin-top:6px">有代码的资产：市值 = 份额/股数 × 最新价（价格需在「设置 → 更新行情」维护，上线后由定时任务自动抓）。无代码资产：数量即金额。</div>
   </div>
@@ -274,7 +288,7 @@ ul.tight li{margin-bottom:3px}
   </div>
 
   <div class="card">
-    <h2>定投计划</h2>
+    <h2>我的定投计划</h2>
     <div class="muted">到期不再自动入账：每期到期先生成「待确认」记录，核对实际扣款后再写入账目——系统不替未经核实的事实盖章。</div>
     <div style="overflow-x:auto;margin-top:10px"><table id="planTable"></table></div>
   </div>
@@ -349,12 +363,12 @@ ul.tight li{margin-bottom:3px}
 <!-- ============ 日历（两视图） ============ -->
 <section id="tab-cal" class="hidden">
   <div class="card">
-    <h2>视图一 · 计划与待办</h2>
+    <h2>接下来会发生什么（都是计划，没发生）</h2>
     <div class="muted">只有确定日期的事项。到期未确认的定投永远在顶部待办——核对后才进账目。</div>
     <div id="calTodo" style="margin-top:8px"></div>
   </div>
   <div class="card">
-    <h2>视图二 · 纪律触发条件</h2>
+    <h2>什么时候该动手（条件，不是预测）</h2>
     <div class="muted">这是<b>条件规则，不是日程</b>：没有发生日期、系统不预测行情、没有推送，全部为页面内提醒。到线了，本页和首页会同时告诉你。</div>
     <div id="calTrigger" style="margin-top:8px"></div>
   </div>
@@ -372,7 +386,7 @@ ul.tight li{margin-bottom:3px}
     </div>
   </div>
   <div class="card">
-    <h2>变化归因（自上次对账以来）</h2>
+    <h2>上次核对以来，钱为什么变了</h2>
     <div id="attrib"></div>
   </div>
 </section>
@@ -380,7 +394,7 @@ ul.tight li{margin-bottom:3px}
 <!-- ============ 设置 ============ -->
 <section id="tab-set" class="hidden">
   <div class="card">
-    <h2>目标资产配置比例</h2>
+    <h2>我的目标配置</h2>
     <div id="targetBox"></div>
     <div class="muted" id="targetSum"></div>
   </div>
@@ -481,7 +495,7 @@ const PLANS = [
   {key:'allweather', name:'全天候（桥水思路）', desc:'股30/债55/黄金商品15。靠分散而非预测，各种经济环境都不至于太差（长债可用长久期债基替代，中期部分算在基金ETF）',
    t:{'现金存款':0.00,'固收理财':0.40,'基金ETF':0.15,'股票':0.30,'另类（黄金等）':0.15,'其他':0}}
 ];
-const PAGE_VER = '2026-10-19g';   // 页面版本，用来确认手机/电脑跑的是不是同一版
+const PAGE_VER = '2026-10-20a';   // 页面版本，用来确认手机/电脑跑的是不是同一版
 const DEFAULTS = {
   holdings: [], transactions: [], quotes: {}, snapshots: [], plans: [], pending: [],
   styleTargets: {'宽基':0.40,'红利':0.15,'成长':0.10,'债':0,'现金':0,'行业主题':0.35},
@@ -640,7 +654,7 @@ function updateHdsub(){
 }
 function render(){
   const c = compute();
-  renderStatus(c); renderKPI(c); renderCat(c); renderStyle(c); renderSector(c); renderAcc(c);
+  renderOverview(c); renderStatus(c); renderKPI(c); renderCat(c); renderStyle(c); renderSector(c); renderAcc(c);
   renderTrend(); renderHealth(c); renderHoldings(); renderTx(); renderRecon(c); renderTargets(); renderStyleTargets(); renderSectorTargets();
   renderPlans(); renderPending(); renderCal(); renderTimeline('home'); renderTimeline('all');
   document.getElementById('mktVal').textContent = S.params.market || '—';
@@ -664,7 +678,7 @@ function renderKPI(c){
     {label:'净资产', value:money(c.net), hint:'总资产 '+money(c.assets)+' − 负债 '+money(c.debt)},
     {label:'记账以来收益', value:'<span class="'+gainCls+'">'+gainTxt+'</span>', hint:'<span class="'+twrCls+'">收益率 '+twrTxt+'</span><span class="'+cmpCls+'">'+cmpTxt+'</span>'},
     {label:'回撤', value:'<span class="'+ddCls+'">'+ddTxt+'</span>', hint:'阈值 '+(S.params.drawdown||5)+'%'+(g?(' · 起始 '+g.firstDate):'')},
-    {label:'待处理', value:String(buildActions(c).length), hint:'偏离/集中度/待确认等需要关注项合计'}
+    {label:'该处理的事', value:String(buildActions(c).length), hint:'加起来一共这么多件'}
   ];
   document.getElementById('kpis').innerHTML = kpis.map(k=>
     `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="hint">${k.hint}</div></div>`).join('');
@@ -685,37 +699,66 @@ function buildActions(c){
   const conc=concentration(c).list, issues=dataIssues();
   const reconDays = S.meta.lastReconcile ? Math.round((Date.now()-new Date(S.meta.lastReconcile))/86400000) : null;
   const acts=[];
-  if(pend.length) acts.push({cls:'act', tag:'待确认',
-    text:'有 <b>'+pend.length+'</b> 期定投到期未核对（约 '+money(pend.reduce((a,x)=>a+x.amount,0))+'），核对后才入账',
-    btn:'去确认', fn:'goPlan()'});
+  if(pend.length) acts.push({cls:'act', tag:'待核对',
+    text:'有 <b>'+pend.length+'</b> 期定投该扣款了、还没核对（约 '+money(pend.reduce((a,x)=>a+x.amount,0))+'），核对后才算进账',
+    btn:'去核对', fn:'goPlan()'});
   devs.slice(0,3).forEach(d=>{
-    const dir=d.d>0?'超配':'低配';
+    const dir=d.d>0?'多了':'少了', verb=d.d>0?'该减':'该补';
     const group=S.holdings.filter(x=>x.cat===d.cat && x.cat!=='负债')
       .sort((a,b)=>valueOf(b)-valueOf(a)).slice(0,2).map(x=>x.name).join(' / ');
-    acts.push({cls:d.level==='红线'?'act':'warn', tag:d.level,
-      text:esc(d.cat)+' '+dir+' '+pct(Math.abs(d.d),1)+'（实际 '+pct(d.actual,1)+' / 目标 '+pct(d.target,0)+'），约 '+money(Math.abs(d.amount))+(group?('，优先调整 '+esc(group)):'')});
+    acts.push({cls:d.level==='红线'?'act':'warn', tag:d.level==='红线'?'该动手':'该留心',
+      text:'<b>'+esc(d.cat)+'</b> 占了 '+pct(d.actual,1)+'，比你的目标 '+pct(d.target,0)+' '+dir+' '+(Math.abs(d.d)*100).toFixed(1)+' 个百分点，'+verb+'约 '+money(Math.abs(d.amount))+(group?('，先从 '+esc(group)+' 动'):'')});
   });
-  conc.slice(0,1).forEach(x=>acts.push({cls:'act', tag:'红线',
-    text:x.type+'「'+esc(x.name)+'」占 '+pct(x.share,1)+'，超 35% 上限'}));
-  if(reconDays!=null && reconDays>7) acts.push({cls:'warn', tag:'超 7 天未对账',
-    text:'上次对账 '+reconDays+' 天前，该校准一次了', btn:'去对账', fn:'goRecon()'});
+  conc.slice(0,1).forEach(x=>acts.push({cls:'act', tag:'该动手',
+    text:'<b>'+esc(x.name)+'</b> 占了 '+pct(x.share,1)+'，超过 35% 上限，太集中了'}));
+  if(reconDays!=null && reconDays>7) acts.push({cls:'warn', tag:'该对账了',
+    text:'已经 '+reconDays+' 天没和银行核对过了，账上的数字可能和实际不一样了', btn:'去对账', fn:'goRecon()'});
   const sd=styleDeviation(c);
   sd.breaching.slice(0,1).forEach(r=>{
-    const dir=r.d>0?'超配':'低配';
-    acts.push({cls:r.level==='红线'?'act':'warn', tag:'风格'+r.level,
-      text:'基金ETF 内「'+esc(r.key)+'」'+dir+' '+pct(Math.abs(r.d),1)+'（实际 '+pct(r.actual,1)+' / 目标 '+pct(r.target,0)+'），约 '+money(Math.abs(r.amount)),
-      btn:'去调整目标', fn:"switchAlloc('style')"});
+    const verb=r.d>0?'该减':'该补';
+    acts.push({cls:r.level==='红线'?'act':'warn', tag:r.level==='红线'?'该动手':'该留心',
+      text:'基金里的「<b>'+esc(r.key)+'</b>」占了 '+pct(r.actual,1)+'，比目标 '+(r.d>0?'多了':'少了')+' '+(Math.abs(r.d)*100).toFixed(1)+' 个百分点，'+verb+'约 '+money(Math.abs(r.amount)),
+      btn:'去调目标', fn:"switchAlloc('style')"});
   });
   const sec=sectorDeviation(c);
   sec.breaching.slice(0,1).forEach(r=>{
-    const dir=r.d>0?'超配':'低配';
-    acts.push({cls:r.level==='红线'?'act':'warn', tag:'行业'+r.level,
-      text:'基金ETF 内行业「'+esc(r.key)+'」'+dir+' '+pct(Math.abs(r.d),1)+'（实际 '+pct(r.actual,1)+' / 目标 '+pct(r.target,0)+'），约 '+money(Math.abs(r.amount)),
-      btn:'去调整目标', fn:"switchAlloc('sector')"});
+    const verb=r.d>0?'该减':'该补';
+    acts.push({cls:r.level==='红线'?'act':'warn', tag:r.level==='红线'?'该动手':'该留心',
+      text:'基金里的行业「<b>'+esc(r.key)+'</b>」占了 '+pct(r.actual,1)+'，比目标 '+(r.d>0?'多了':'少了')+' '+(Math.abs(r.d)*100).toFixed(1)+' 个百分点，'+verb+'约 '+money(Math.abs(r.amount)),
+      btn:'去调目标', fn:"switchAlloc('sector')"});
   });
-  issues.slice(0,2).forEach(x=>acts.push({cls:'act', tag:'数据异常',
-    text:esc(x)+'，账目可能失真', btn:'去检查', fn:'goHold()'}));
+  issues.slice(0,2).forEach(x=>acts.push({cls:'act', tag:'数据有误',
+    text:esc(x)+'，账目可能不准', btn:'去改', fn:'goHold()'}));
   return acts;
+}
+function renderOverview(c){
+  const card=document.getElementById('overviewCard'); if(!card) return;
+  if(!S.holdings.length){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  document.getElementById('ovNet').textContent = money(c.net);
+  const reconDays = S.meta.lastReconcile ? Math.round((Date.now()-new Date(S.meta.lastReconcile))/86400000) : null;
+  let trust='行情 '+esc(S.meta.quoteDate||'无')+' · 上次对账 '+(reconDays!=null ? (reconDays+' 天前') : esc(S.meta.lastReconcile||'从未'));
+  document.getElementById('ovTrust').textContent = trust;
+  const g=totalGain(), t=twr();
+  const gainEl=document.getElementById('ovGain'), gainSub=document.getElementById('ovGainSub');
+  if(g){
+    const cls=g.amount>0?'up':(g.amount<0?'down':'');
+    const pctTxt=(t==null)?'':('（'+(t>=0?'+':'')+pct(t,1)+'）');
+    gainEl.innerHTML='记账以来 <span class="'+cls+'">'+(g.amount>=0?'+':'')+money(g.amount)+'</span> <span class="muted" style="font-size:13px">'+pctTxt+'</span>';
+    gainSub.textContent='自 '+g.firstDate+' 首次记录算起';
+  }else{
+    gainEl.innerHTML='<span class="muted">记账以来的收益要等有第一次记录后才算得出来</span>';
+    gainSub.textContent='';
+  }
+  const acts=buildActions(c), ac=document.getElementById('ovAction');
+  if(acts.length){
+    const a=acts[0];
+    ac.innerHTML='<div class="row" style="align-items:center;gap:10px"><div style="flex:3"><b>现在最该做：</b>'+a.text+'</div>'+
+      '<div style="flex:1;text-align:right">'+(a.btn?('<button class="sm" onclick="'+a.fn+'">'+a.btn+'</button>'):'')+'</div></div>'+
+      (acts.length>1?('<div class="muted" style="font-size:12px;margin-top:4px">还有 '+(acts.length-1)+' 件事，见下面「当前状态」</div>'):'');
+  }else{
+    ac.innerHTML='<span class="tag ok">现在没有该处理的事</span> <span class="muted" style="font-size:13px">配置在纪律内，保持现状即可</span>';
+  }
 }
 function renderStatus(c){
   const title=document.getElementById('statusTitle'), body=document.getElementById('statusBody'),
@@ -730,7 +773,7 @@ function renderStatus(c){
     '已记录快照：<b>'+S.snapshots.length+'</b> 个';
   const acts=buildActions(c);
   if(acts.length){
-    title.textContent='现在的状态：需要处理';
+    title.textContent='现在有 '+acts.length+' 件事该处理';
     body.innerHTML='<ul class="tight">'+acts.map(a=>
       `<li><span class="tag ${a.cls}">${a.tag}</span> ${a.text}${a.btn?(' <button class="sm ghost" onclick="'+a.fn+'">'+a.btn+'</button>'):''}</li>`).join('')+'</ul>';
     card.style.borderColor='#e6a8a8';
@@ -746,17 +789,17 @@ function renderStatus(c){
   });
   soon.sort((a,b)=>a.d.localeCompare(b.d));
   if(soon.length || (reconDays!=null && reconDays>=4)){
-    title.textContent='现在的状态：近期有计划';
+    title.textContent='接下来：有计划好的扣款（还没发生）';
     let h='';
-    if(soon.length) h+='<div class="muted" style="margin-bottom:4px">未来 7 天定投到期（<b>计划，非已执行</b>）</div><ul class="tight">'+
+    if(soon.length) h+='<div class="muted" style="margin-bottom:4px">接下来 7 天有定投要扣款（<b>只是计划，还没扣</b>）</div><ul class="tight">'+
       soon.slice(0,5).map(x=>`<li><span class="tag info">${x.d}</span> ${esc(x.p.name||'定投')} 扣款 ${money(x.p.amount)}（${esc(x.p.fromName||'新增资金')}）</li>`).join('')+'</ul>';
-    if(reconDays!=null && reconDays>=4) h+='<div class="muted" style="margin-top:4px">距上次对账 '+reconDays+' 天，'+ (7-reconDays) +' 天后该对账了。</div>';
+    if(reconDays!=null && reconDays>=4) h+='<div class="muted" style="margin-top:4px">已经 '+reconDays+' 天没对账了，'+(7-reconDays)+' 天后该核对一次。</div>';
     body.innerHTML=h;
     card.style.borderColor='#b8cde8';
     return;
   }
   // 当前无需调整：明确说「没事」，并给下次检查时间
-  title.textContent='现在的状态：当前无需调整';
+  title.textContent='当前不用动';
   const nextCheck=[];
   S.plans.filter(p=>p.status==='active').forEach(p=>{
     const d=nextDue(p); if(d) nextCheck.push(d);
@@ -769,7 +812,7 @@ function renderStatus(c){
   if(reconNext) checks.push('下次建议对账 '+reconNext);
   if(!checks.length) checks.push('下次定投扣款日或对账日');
   body.innerHTML='<div class="row"><div style="flex:3"><span class="tag ok">配置在纪律内、无待办</span>'+
-    '<div class="muted" style="margin-top:6px">没有偏离超线、没有待确认、没有异常。保持现状即可。</div></div>'+
+    '<div class="muted" style="margin-top:6px">没有该调的、没有要核对的、没有异常。保持现状就好。</div></div>'+
     '<div style="flex:2" class="muted">下次检查：'+checks.map(esc).join('；')+'</div></div>';
   card.style.borderColor='#b5d8b8';
 }
